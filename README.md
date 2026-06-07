@@ -42,6 +42,15 @@ Linux binaries (built from the PR branches above). An automated installer
 script is in progress; until then the setup requires a manually prepared
 win32 wine prefix with .NET 4.8 — full guide coming.
 
+## Known limitation: 32-bit memory pressure
+
+Because the setup is pinned to a 32-bit wine prefix (XWAU's .NET hooks host
+the CLR in `DllMain`, which only works there), the game can occasionally run
+out of address space entering a mission. It is nondeterministic and largely
+mitigated by the installer defaults (Medium preset, skin-size cap, raytracing
+off, out-of-process OPT loader). Causes, evidence, and what does/doesn't help
+are documented in [docs/memory-pressure.md](docs/memory-pressure.md).
+
 ## Requirements (summary)
 
 - Steam + X-Wing Alliance (appid 361670) + XWAU 2025

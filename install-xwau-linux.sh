@@ -26,7 +26,9 @@
 #   --prefix PATH      wine prefix to create/use (default: ~/.local/share/xwa-prefix)
 #   --work-dir PATH    scratch dir (default: ~/.cache/xwau-linux-install)
 #   --ratio {2,3}      XWAU aspect-ratio finalize package (default 2 = 16:9)
-#   --preset NAME      veryLow|Low|Medium|High|Ultra (default High)
+#   --preset NAME      veryLow|Low|Medium|High|Ultra (default Medium; higher
+#                      presets commit more memory and can crash mission entry
+#                      on the 32-bit setup -- see docs/memory-pressure.md)
 #   --resolution WxH   force [hook_resolution] (use if the menu renders half-size)
 #   --release TAG      xwau-linux release to install binaries from (default v0.1.0)
 #   --skip-prefix --skip-xwau --skip-binaries --skip-configs   resume helpers
@@ -48,7 +50,7 @@ WORK="$HOME/.cache/xwau-linux-install"
 COMPAT_DIR="$HOME/.local/share/Steam/compatibilitytools.d"
 GAME=""
 XWAU_FULL="" XWAU_UPD=""
-RATIO="2" PRESET="High" RESOLUTION="" CONCOURSE_PACE="" SKINS_THRESHOLD="100000000"
+RATIO="2" PRESET="Medium" RESOLUTION="" CONCOURSE_PACE="" SKINS_THRESHOLD="100000000"
 SKIP_PREFIX=0 SKIP_XWAU=0 SKIP_BINARIES=0 SKIP_CONFIGS=0
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
