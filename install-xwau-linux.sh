@@ -311,6 +311,16 @@ if resolution:
     set_key(hooks, 'ResolutionWidth', w, section='hook_resolution')
     set_key(hooks, 'ResolutionHeight', h, section='hook_resolution')
 
+# The High/Ultra presets enable raytracing + HDR. The raytracing BVH
+# build at mission entry exhausts the 32-bit address space under wine
+# (crash right before the 3D view), so force them off.
+ssao = find('SSAO.cfg')
+if os.path.exists(ssao):
+    set_key(ssao, 'raytracing_enabled', '0')
+    set_key(ssao, 'raytracing_enabled_in_tech_room', '0')
+    set_key(ssao, 'raytracing_enabled_in_cockpit', '0')
+    set_key(ssao, 'HDR_enabled', '0')
+
 vrp = find('VRParams.cfg')
 if os.path.exists(vrp):
     set_key(vrp, 'concourse_animations_at_25fps', pace)
