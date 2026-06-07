@@ -48,7 +48,7 @@ WORK="$HOME/.cache/xwau-linux-install"
 COMPAT_DIR="$HOME/.local/share/Steam/compatibilitytools.d"
 GAME=""
 XWAU_FULL="" XWAU_UPD=""
-RATIO="2" PRESET="High" RESOLUTION=""
+RATIO="2" PRESET="High" RESOLUTION="" CONCOURSE_PACE=""
 SKIP_PREFIX=0 SKIP_XWAU=0 SKIP_BINARIES=0 SKIP_CONFIGS=0
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -63,6 +63,7 @@ while [ $# -gt 0 ]; do
         --ratio) RATIO="$2"; shift 2 ;;
         --preset) PRESET="$2"; shift 2 ;;
         --resolution) RESOLUTION="$2"; shift 2 ;;
+        --concourse-pace) CONCOURSE_PACE="$2"; shift 2 ;;
         --release) RELEASE_TAG="$2"; shift 2 ;;
         --skip-prefix) SKIP_PREFIX=1; shift ;;
         --skip-xwau) SKIP_XWAU=1; shift ;;
@@ -229,10 +230,21 @@ if [ "$SKIP_CONFIGS" = 1 ]; then
     log "Skipping config overlay"
 else
     log "Applying Linux config overlay"
-    python3 - "$GAME" "$RESOLUTION" <<'PYCFG'
+    # The concourse pacing key depends on the monitor refresh rate (the
+    # game presents briefing/concourse frames in N passes of SyncInterval N
+    # = N^2 vblanks; ~25 fps is the intended cadence).
+    if [ -z "${CONCOURSE_PACE:-}" ]; then
+        HZ=$(command -v xrandr >/dev/null && xrandr --current 2>/dev/null | /usr/bin/grep -oP '[0-9.]+(?=\*)' | head -1 | cut -d. -f1 || echo "")
+        if   [ -z "$HZ" ];        then CONCOURSE_PACE=1
+        elif [ "$HZ" -le 70 ];    then CONCOURSE_PACE=1
+        elif [ "$HZ" -le 150 ];   then CONCOURSE_PACE=2
+        else                           CONCOURSE_PACE=3; fi
+        echo "    detected refresh ~${HZ:-?} Hz -> concourse pace $CONCOURSE_PACE"
+    fi
+    python3 - "$GAME" "$RESOLUTION" "$CONCOURSE_PACE" <<'PYCFG'
 import sys, os, re
 
-game, resolution = sys.argv[1], sys.argv[2]
+game, resolution, pace = sys.argv[1], sys.argv[2], sys.argv[3]
 
 def find(name):
     for e in os.listdir(game):
@@ -281,6 +293,10 @@ def set_key(path, key, value, section=None):
 
 ddraw = find('ddraw.cfg')
 set_key(ddraw, 'HDConcourseEnabled', '1')
+# XWAU ships EnableSideProcess=1, but the side players (XwaDDrawPlayer /
+# XwaConcoursePlayer) cannot run under wine (D3D11 shared handles) -> error
+# popups. The in-process paths (plus the ddraw wine shim) handle everything.
+set_key(ddraw, 'EnableSideProcess', '0')
 set_key(ddraw, 'TgSmushSwapchainPresentEnabled', '1')
 set_key(ddraw, 'TextFontFamily', 'DejaVu Sans')
 set_key(ddraw, 'Text2DRendererEnabled', '1')
@@ -288,11 +304,16 @@ set_key(ddraw, 'Radar2DRendererEnabled', '1')
 
 hooks = find('Hooks.ini')
 set_key(hooks, 'HDConcourseTextFont', 'Liberation Mono', section='hook_concourse')
+set_key(hooks, 'EnableSideProcess', '0', section='hook_concourse')
 set_key(hooks, 'EnableSideProcess', '1', section='hook_32bpp')
 if resolution:
     w, h = resolution.lower().split('x')
     set_key(hooks, 'ResolutionWidth', w, section='hook_resolution')
     set_key(hooks, 'ResolutionHeight', h, section='hook_resolution')
+
+vrp = find('VRParams.cfg')
+if os.path.exists(vrp):
+    set_key(vrp, 'concourse_animations_at_25fps', pace)
 
 tgs = find('TGSmush.cfg')
 set_key(tgs, 'ForceBackend', 'mf')
