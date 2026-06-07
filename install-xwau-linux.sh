@@ -48,7 +48,7 @@ WORK="$HOME/.cache/xwau-linux-install"
 COMPAT_DIR="$HOME/.local/share/Steam/compatibilitytools.d"
 GAME=""
 XWAU_FULL="" XWAU_UPD=""
-RATIO="2" PRESET="High" RESOLUTION="" CONCOURSE_PACE=""
+RATIO="2" PRESET="High" RESOLUTION="" CONCOURSE_PACE="" SKINS_THRESHOLD="100000000"
 SKIP_PREFIX=0 SKIP_XWAU=0 SKIP_BINARIES=0 SKIP_CONFIGS=0
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -64,6 +64,7 @@ while [ $# -gt 0 ]; do
         --preset) PRESET="$2"; shift 2 ;;
         --resolution) RESOLUTION="$2"; shift 2 ;;
         --concourse-pace) CONCOURSE_PACE="$2"; shift 2 ;;
+        --skins-threshold) SKINS_THRESHOLD="$2"; shift 2 ;;
         --release) RELEASE_TAG="$2"; shift 2 ;;
         --skip-prefix) SKIP_PREFIX=1; shift ;;
         --skip-xwau) SKIP_XWAU=1; shift ;;
@@ -241,10 +242,10 @@ else
         else                           CONCOURSE_PACE=3; fi
         echo "    detected refresh ~${HZ:-?} Hz -> concourse pace $CONCOURSE_PACE"
     fi
-    python3 - "$GAME" "$RESOLUTION" "$CONCOURSE_PACE" <<'PYCFG'
+    python3 - "$GAME" "$RESOLUTION" "$CONCOURSE_PACE" "$SKINS_THRESHOLD" <<'PYCFG'
 import sys, os, re
 
-game, resolution, pace = sys.argv[1], sys.argv[2], sys.argv[3]
+game, resolution, pace, skins_threshold = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4]
 
 def find(name):
     for e in os.listdir(game):
@@ -330,8 +331,13 @@ set_key(tgs, 'ForceBackend', 'mf')
 set_key(tgs, 'MFSoftwarePresent', '0')
 set_key(tgs, 'MFD3DPresent', '1')
 
+# Cap above which the sideload player halves skin textures: receiving an
+# OPT needs TWO contiguous regions of its size in the game's 32-bit space,
+# and under wine the largest free block at mission load is ~250-400 MB.
+# 100 MB keeps every transfer comfortably under the cliff (full-size needs
+# ~2x the value; the reference 200 MB ran within ~50 MB of the edge).
 with open(os.path.join(game, 'Xwa32bppPlayer32.cfg'), 'w') as f:
-    f.write('SkinsSizeThreshold = 200000000\n')
+    f.write(f'SkinsSizeThreshold = {skins_threshold}\n')
 print('  Xwa32bppPlayer32.cfg written')
 
 with open(os.path.join(game, 'dxvk.conf'), 'a+') as f:
