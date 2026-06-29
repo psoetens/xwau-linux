@@ -17,7 +17,8 @@
 # Options:
 #   --game-dir PATH   game dir (default: auto-detect Steam)
 #   --work-dir PATH   scratch dir (default: ~/.cache/xwau-linux-install)
-#   --bin-dir PATH    dir with the win64 binaries (no win64 release yet)
+#   --release TAG     win64 binary release to install (default v0.2.0)
+#   --bin-dir PATH    local win64 binaries (optional dev override; default: download from --release)
 #   --ratio {2,3}     XWAU aspect-ratio finalize (default 2 = 16:9)
 #   --preset NAME     veryLow|Low|Medium|High|Ultra (default High)
 #   --resolution WxH  force [hook_resolution]
@@ -32,7 +33,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # ---------------------------------------------------------------- defaults
 WORK="$HOME/.cache/xwau-linux-install"
 COMPAT_DIR="$HOME/.local/share/Steam/compatibilitytools.d"
-GAME="" XWAU_FULL="" XWAU_UPD="" BIN_DIR=""
+RELEASE_TAG="v0.2.0"          # win64 binaries are downloaded from this release
+GAME="" XWAU_FULL="" XWAU_UPD="" BIN_DIR=""   # --bin-dir = optional local-build override
 RATIO="2" PRESET="High" RESOLUTION="" CONCOURSE_PACE=""
 SKIP_XWAU=0 SKIP_BINARIES=0 SKIP_CONFIGS=0
 
@@ -41,6 +43,7 @@ while [ $# -gt 0 ]; do
         --game-dir) GAME="$2"; shift 2 ;;
         --work-dir) WORK="$2"; shift 2 ;;
         --bin-dir) BIN_DIR="$2"; shift 2 ;;
+        --release) RELEASE_TAG="$2"; shift 2 ;;
         --xwau-full) XWAU_FULL="$2"; shift 2 ;;
         --xwau-upd) XWAU_UPD="$2"; shift 2 ;;
         --ratio) RATIO="$2"; shift 2 ;;
@@ -121,7 +124,7 @@ xwau_vanilla_backup "$GAME"
     "$USERPROFILE" "$WORK" "$XWAU_FULL" "$XWAU_UPD" "$RATIO" "$PRESET"
 
 # ---------------------------------------------------------------- step 7: binaries
-[ "$SKIP_BINARIES" = 1 ] || xwau_install_binaries "$GAME" "$BIN_DIR"
+[ "$SKIP_BINARIES" = 1 ] || xwau_install_binaries "$GAME" "$BIN_DIR" "$RELEASE_TAG" "$WORK"
 
 # ---------------------------------------------------------------- step 8: config
 [ "$SKIP_CONFIGS" = 1 ] || xwau_config_overlay "$GAME" "$RESOLUTION" "$CONCOURSE_PACE"

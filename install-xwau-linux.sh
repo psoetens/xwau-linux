@@ -22,7 +22,8 @@
 #   --wine-version V   Kron4ek wine version to fetch (default: 11.11)
 #   --wine-dir PATH    use an existing wine-11 build instead of downloading Kron4ek
 #   --runtime NAME     wine-mono (default) | dotnet48
-#   --bin-dir PATH     dir with the win64 binaries (no win64 release yet)
+#   --release TAG      win64 binary release to install (default v0.2.0)
+#   --bin-dir PATH     local win64 binaries (optional dev override; default: download from --release)
 #   --ratio {2,3}      XWAU aspect-ratio finalize (default 2 = 16:9)
 #   --preset NAME      veryLow|Low|Medium|High|Ultra (default High; no VA ceiling on win64)
 #   --resolution WxH   force [hook_resolution]
@@ -41,7 +42,8 @@ RUNTIME="wine-mono"                   # wine-mono | dotnet48
 MONO_MSI_VER="11.1.0"                 # wine-mono version (madewokherd/wine-mono)
 GE_NAME="GE-Proton10-34"              # DXVK + gstreamer-codec donor
 GE_URL="https://github.com/GloriousEggroll/proton-ge-custom/releases/download/${GE_NAME}/${GE_NAME}.tar.gz"
-BIN_DIR=""
+RELEASE_TAG="v0.2.0"                   # win64 binaries downloaded from this release
+BIN_DIR=""                            # --bin-dir = optional local-build override
 PREFIX="$HOME/.local/share/xwa-prefix-w64"
 WORK="$HOME/.cache/xwau-linux-install"
 COMPAT_DIR="$HOME/.local/share/Steam/compatibilitytools.d"
@@ -58,6 +60,7 @@ while [ $# -gt 0 ]; do
         --wine-dir) WINE_DIR="$2"; shift 2 ;;
         --runtime) RUNTIME="$2"; shift 2 ;;
         --bin-dir) BIN_DIR="$2"; shift 2 ;;
+        --release) RELEASE_TAG="$2"; shift 2 ;;
         --xwau-full) XWAU_FULL="$2"; shift 2 ;;
         --xwau-upd) XWAU_UPD="$2"; shift 2 ;;
         --ratio) RATIO="$2"; shift 2 ;;
@@ -196,7 +199,7 @@ fi
     "$PREFIX/drive_c/users/$USER" "$WORK" "$XWAU_FULL" "$XWAU_UPD" "$RATIO" "$PRESET"
 
 # ---------------------------------------------------------------- step 8: binaries
-[ "$SKIP_BINARIES" = 1 ] || xwau_install_binaries "$GAME" "$BIN_DIR"
+[ "$SKIP_BINARIES" = 1 ] || xwau_install_binaries "$GAME" "$BIN_DIR" "$RELEASE_TAG" "$WORK"
 
 # ---------------------------------------------------------------- step 9: config
 [ "$SKIP_CONFIGS" = 1 ] || xwau_config_overlay "$GAME" "$RESOLUTION" "$CONCOURSE_PACE"

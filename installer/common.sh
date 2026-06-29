@@ -70,11 +70,29 @@ xwau_payload_replay() {
 }
 
 # ---- win64 binary overlay (force-shim ddraw, native hook_patcher, CLR-hosting shims) ----
-# xwau_install_binaries GAME BIN_DIR
+# xwau_install_binaries GAME BIN_DIR RELEASE_TAG WORK
+# If BIN_DIR is empty, downloads the binaries from the GitHub release RELEASE_TAG
+# (checksum-verified) into WORK; BIN_DIR is the developer override for local builds.
+XWAU_RELEASE_BASE="https://github.com/psoetens/xwau-linux/releases/download"
+XWAU_BIN_FILES="ddraw_effects.dll TGSMUSH.DLL hook_patcher.dll hook_32bpp_net.dll hook_concourse_net.dll hook_32bpp_bridge.dll hook_concourse_bridge.dll"
 xwau_install_binaries() {
-    local game="$1" bin_dir="$2"
-    [ -n "$bin_dir" ] && [ -d "$bin_dir" ] || die "pass --bin-dir DIR with the win64 binaries (SHIPPING TODO: cut a win64 release + add --release)"
-    log "Installing win64 binaries from $bin_dir"
+    local game="$1" bin_dir="$2" release_tag="${3:-}" work="${4:-$HOME/.cache/xwau-linux-install}"
+    if [ -n "$bin_dir" ]; then
+        [ -d "$bin_dir" ] || die "--bin-dir not found: $bin_dir"
+        log "Installing win64 binaries from $bin_dir (local override)"
+    else
+        [ -n "$release_tag" ] || die "no --bin-dir and no --release tag"
+        bin_dir="$work/bin-$release_tag"
+        mkdir -p "$bin_dir"
+        log "Downloading win64 binaries from release $release_tag"
+        ( cd "$bin_dir"
+          local f
+          for f in $XWAU_BIN_FILES SHA256SUMS.txt; do
+              [ -f "$f" ] || curl -L -o "$f" "$XWAU_RELEASE_BASE/$release_tag/$f"
+          done
+          sha256sum -c SHA256SUMS.txt
+        ) || die "win64 binary download/checksum failed (release $release_tag)"
+    fi
     _xwau_put() {  # src-basename backup-suffix
         local f="$1" suffix="$2"
         [ -f "$bin_dir/$f" ] || die "missing $f in $bin_dir"
