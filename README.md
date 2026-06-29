@@ -31,9 +31,26 @@ detection and config keys whose defaults preserve stock behavior:
 ## Releases
 
 The [releases](../../releases) page carries the prebuilt, game-verified
-Linux binaries (built from the PR branches above). An automated installer
-script is in progress; until then the setup requires a manually prepared
-win32 wine prefix with .NET 4.8 — full guide coming.
+Linux binaries. (The win64 binary set is not yet released — the installers
+currently take a local `--bin-dir`.)
+
+## Installers (win64, this branch)
+
+Two installers, pick by setup:
+
+- **`install-xwau-steam.sh` — recommended for Steam users.** Uses Steam's
+  **Proton** (≥ wine-11; "Proton Hotfix" or "Proton Experimental"), which already
+  provides wine-11 + DXVK + libvkd3d + gstreamer codecs + wine-mono in its Steam
+  Linux Runtime container. The script lays down the game files + config and prints
+  the two Steam settings to apply (Compatibility = Proton; a Launch Options line).
+  No bundled wine.
+- **`install-xwau-linux.sh` — standalone (no Steam Proton).** Bundles **Kron4ek
+  wine-11** + **wine-mono**, and uses a **GE-Proton** as the DXVK + gstreamer-codec
+  donor. Builds a win64 prefix and a bare launcher.
+
+Both share `installer/common.sh` (payload replay, binary overlay, config overlay)
+and need the XWAU 2025 zips (you download them from xwaupgrade.com) + a `--bin-dir`
+of the win64 binaries.
 
 ## Architecture: win64 (this branch)
 

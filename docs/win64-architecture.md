@@ -63,12 +63,23 @@ sees a foreign object. `HDConcourseEnabled=1` now works on wine-11.
 | SSAO raytracing/HDR force-off, `Medium` preset clamp, `dxvk.maxFrameRate` cap | reduce 32-bit VA pressure | **dropped** — no VA ceiling (default preset raised to High) |
 | mission-entry memory-pressure crash class | 32-bit VA exhaustion | **gone** |
 
-## Installer / launcher
+## Installers (two paths)
 
-- `install-xwau-linux.sh` (this branch) is the **win64** recipe: win64 prefix,
-  wine-mono (default) or dotnet48, no sidecar, no downscale, `HDConcourseEnabled=1`,
-  in-process hooks, the native CLR-hosting shims + native `hook_patcher`.
-- Launcher: `tools/xwa-w64-launch.sh` (no sidecar pre-start).
+Shared logic lives in `installer/common.sh` (payload replay, win64 binary overlay,
+config overlay: `HDConcourseEnabled=1`, `EnableSideProcess=0`, fonts, TgSmush).
+
+- **`install-xwau-steam.sh` — Steam/Proton (recommended).** Uses Steam's Proton
+  (≥ wine-11: Proton Hotfix / Experimental), which supplies wine-11 + DXVK +
+  libvkd3d + gstreamer codecs + wine-mono in its container. Lays down files+config,
+  then prints the Steam Compatibility + Launch-Options settings
+  (`WINEDLLOVERRIDES="ddraw=n,b;dinput=n,b;dinput8=n,b;windowscodecs=b" %command%`).
+  No bundled wine, no prefix creation. Validated this session: Proton-in-sniper
+  boots deadlock/crash-free with libvkd3d+DXVK present (Steam provides both).
+- **`install-xwau-linux.sh` — Kron4ek standalone.** Downloads Kron4ek wine-11
+  (default 11.11, sha256-verified) + installs wine-mono, uses a GE-Proton as the
+  DXVK/gstreamer donor, builds a win64 prefix, and writes a bare launcher
+  (`tools/xwa-w64-launch.sh` is the in-process template). Validated this session:
+  Kron4ek wine-11.11 runs the game bare, clean.
 
 ## Open decisions before shipping (see installer header)
 
