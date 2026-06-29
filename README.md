@@ -25,10 +25,6 @@ detection and config keys whose defaults preserve stock behavior:
   managed `hook_patcher`. The upstream one is a managed IJW assembly that
   bootstraps the CLR in `DllMain`; the native port removes that so the game can
   run under **wine-mono** (no ~400 MB dotnet48 install). See its README.
-- `hook-keyboard-bg/` — **hook_keyboard_bg.dll**: patches the DirectInput
-  keyboard cooperative level FOREGROUND→BACKGROUND so the keyboard survives
-  wine's focus juggling on Esc-to-menu. **Linux-only: do not install on
-  Windows** (it would read keys while the game is unfocused).
 - `tools/` — the launcher (`xwa-w64-launch.sh`; no sidecar pre-start).
 - `docs/win64-architecture.md` — the win64 architecture (this branch).
 

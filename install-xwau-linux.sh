@@ -243,7 +243,8 @@ fi
 #   hook_patcher.dll         - NATIVE (unmanaged) reimpl (no CLR bootstrap deadlock)
 #   hook_32bpp_net.dll       - native CLR-hosting shim (+ hook_32bpp_bridge.dll)
 #   hook_concourse_net.dll   - native CLR-hosting shim (+ hook_concourse_bridge.dll)
-#   hook_keyboard_bg.dll     - dinput focus fix (pending the Esc test; harmless)
+# (hook_keyboard_bg.dll is NOT needed on win64: the Esc focus-loss it fixed was
+#  the win32 sidecar window stealing focus, which doesn't exist here — verified.)
 if [ "$SKIP_BINARIES" = 1 ]; then
     log "Skipping Linux binaries"
 else
@@ -269,8 +270,6 @@ else
     for b in hook_32bpp_bridge.dll hook_concourse_bridge.dll; do
         [ -f "$BIN_DIR/$b" ] && cp "$BIN_DIR/$b" "$GAME/$b" && echo "    installed $b"
     done
-    # dinput focus fix (Linux-only; pending the Esc keep/remove test)
-    [ -f "$BIN_DIR/hook_keyboard_bg.dll" ] && cp "$BIN_DIR/hook_keyboard_bg.dll" "$GAME/hook_keyboard_bg.dll" && echo "    installed hook_keyboard_bg.dll"
 fi
 
 # ---------------------------------------------------------------- step 7: configs
