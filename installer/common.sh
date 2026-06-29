@@ -14,8 +14,13 @@ fi
 # ---- host fonts check (both installers need the same fonts) ----
 xwau_check_fonts() {
     if command -v fc-list >/dev/null; then
-        fc-list | /usr/bin/grep -qi "DejaVu Sans" || warn "font 'DejaVu Sans' not found — install dejavu fonts (HUD text blank without it)"
-        fc-list | /usr/bin/grep -qi "Liberation Mono" || warn "font 'Liberation Mono' not found — install liberation fonts (concourse text blank without it)"
+        # NB: capture once and match via here-string — do NOT pipe into `grep -q`.
+        # Under `set -o pipefail`, grep -q closes the pipe on first match, fc-list
+        # gets SIGPIPE, and the pipeline reports failure => spurious "not found"
+        # warning even when the font IS present.
+        local fonts; fonts="$(fc-list)"
+        /usr/bin/grep -qi "DejaVu Sans"    <<<"$fonts" || warn "font 'DejaVu Sans' not found — install dejavu fonts (HUD text blank without it)"
+        /usr/bin/grep -qi "Liberation Mono" <<<"$fonts" || warn "font 'Liberation Mono' not found — install liberation fonts (concourse text blank without it)"
     else
         warn "fc-list not found — cannot verify fonts (DejaVu Sans + Liberation Mono required)"
     fi
