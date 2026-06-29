@@ -69,12 +69,18 @@ Shared logic lives in `installer/common.sh` (payload replay, win64 binary overla
 config overlay: `HDConcourseEnabled=1`, `EnableSideProcess=0`, fonts, TgSmush).
 
 - **`install-xwau-steam.sh` — Steam/Proton (recommended).** Uses Steam's Proton
-  (≥ wine-11: Proton Hotfix / Experimental), which supplies wine-11 + DXVK +
-  libvkd3d + gstreamer codecs + wine-mono in its container. Lays down files+config,
-  then prints the Steam Compatibility + Launch-Options settings
-  (`WINEDLLOVERRIDES="ddraw=n,b;dinput=n,b;dinput8=n,b;windowscodecs=b" %command%`).
-  No bundled wine, no prefix creation. Validated this session: Proton-in-sniper
-  boots deadlock/crash-free with libvkd3d+DXVK present (Steam provides both).
+  (≥ wine-11: Proton Hotfix / Experimental / Proton 11), which supplies wine-11 +
+  DXVK + libvkd3d + gstreamer codecs + wine-mono in its container. Lays down
+  files+config, then **auto-configures Steam** via `installer/steam_config.py`
+  (targeted `config.vdf` CompatToolMapping → `proton_11` + `localconfig.vdf`
+  LaunchOptions = `WINEDLLOVERRIDES="ddraw=n,b;dinput=n,b;dinput8=n,b;windowscodecs=b"
+  %command%`; Steam must be closed — `--steam-config-only` resume otherwise; backups +
+  brace-balance re-validate). The launcher (`alliance.exe`, JeremyAnsel's Alliance
+  2.5.0.0) is kept — it spawns 3 idle side-loader windows (harmless; the game ignores
+  them); the first launch compiles DXVK shaders (slow/one-time — documented, not a
+  runtime popup: wrapping `%command%` to show a notice broke the Proton launch, so we
+  don't). No bundled wine, no prefix creation. Validated: full clean install
+  user-verified to the HD concourse.
 - **`install-xwau-linux.sh` — Kron4ek standalone.** Downloads Kron4ek wine-11
   (default 11.11, sha256-verified) + installs wine-mono, uses a GE-Proton as the
   DXVK/gstreamer donor, builds a win64 prefix, and writes a bare launcher

@@ -39,11 +39,14 @@ currently take a local `--bin-dir`.)
 Two installers, pick by setup:
 
 - **`install-xwau-steam.sh` — recommended for Steam users.** Uses Steam's
-  **Proton** (≥ wine-11; "Proton Hotfix" or "Proton Experimental"), which already
+  **Proton** (≥ wine-11; "Proton Hotfix"/"Experimental"/"Proton 11"), which already
   provides wine-11 + DXVK + libvkd3d + gstreamer codecs + wine-mono in its Steam
-  Linux Runtime container. The script lays down the game files + config and prints
-  the two Steam settings to apply (Compatibility = Proton; a Launch Options line).
-  No bundled wine.
+  Linux Runtime container. The script lays down the game files + config and
+  **auto-configures Steam** (sets the Proton compat tool + Launch Options for you —
+  Steam must be closed; if it's running it tells you to re-run with
+  `--steam-config-only`). No bundled wine. (Be patient on the first launch — it
+  compiles the DXVK shader cache and can look frozen for a minute; later launches
+  are fast.)
 - **`install-xwau-linux.sh` — standalone (no Steam Proton).** Bundles **Kron4ek
   wine-11** + **wine-mono**, and uses a **GE-Proton** as the DXVK + gstreamer-codec
   donor. Builds a win64 prefix and a bare launcher.

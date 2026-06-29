@@ -22,8 +22,14 @@
 #   --ratio {2,3}     XWAU aspect-ratio finalize (default 2 = 16:9)
 #   --preset NAME     veryLow|Low|Medium|High|Ultra (default High)
 #   --resolution WxH  force [hook_resolution]
+#   --no-steam-config    don't edit Steam's config; just print the manual steps
+#   --steam-config-only  (re)apply only the Steam compat tool + launch options, then exit
+#                        (use this after closing Steam, if it was running during install)
+#   --proton-token NAME  Steam compat-tool id to set (default proton_11)
 #   --skip-xwau --skip-binaries --skip-configs   resume helpers
 #
+# The installer sets the Proton compat tool + Launch Options for you (Steam must be
+# CLOSED for that; if it's running it tells you to re-run with --steam-config-only).
 # NEVER run Steam "Verify integrity of game files" on a modded install.
 
 set -euo pipefail
@@ -32,8 +38,13 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # ---------------------------------------------------------------- defaults
 WORK="$HOME/.cache/xwau-linux-install"
-COMPAT_DIR="$HOME/.local/share/Steam/compatibilitytools.d"
+STEAM_ROOT="$HOME/.local/share/Steam"
+COMPAT_DIR="$STEAM_ROOT/compatibilitytools.d"
 RELEASE_TAG="v0.2.0"          # win64 binaries are downloaded from this release
+APPID=361670
+PROTON_TOKEN="proton_11"      # Steam compat-tool id for Proton 11 (override: --proton-token)
+DO_STEAM_CONFIG=1             # auto-set compat tool + launch options (needs Steam closed)
+STEAM_CONFIG_ONLY=0          # --steam-config-only: just (re)apply the Steam config + wrapper
 GAME="" XWAU_FULL="" XWAU_UPD="" BIN_DIR=""   # --bin-dir = optional local-build override
 RATIO="2" PRESET="High" RESOLUTION="" CONCOURSE_PACE=""
 SKIP_XWAU=0 SKIP_BINARIES=0 SKIP_CONFIGS=0
@@ -50,16 +61,61 @@ while [ $# -gt 0 ]; do
         --preset) PRESET="$2"; shift 2 ;;
         --resolution) RESOLUTION="$2"; shift 2 ;;
         --concourse-pace) CONCOURSE_PACE="$2"; shift 2 ;;
+        --steam-root) STEAM_ROOT="$2"; shift 2 ;;
+        --proton-token) PROTON_TOKEN="$2"; shift 2 ;;
+        --no-steam-config) DO_STEAM_CONFIG=0; shift ;;
+        --steam-config-only) STEAM_CONFIG_ONLY=1; shift ;;
         --skip-xwau) SKIP_XWAU=1; shift ;;
         --skip-binaries) SKIP_BINARIES=1; shift ;;
         --skip-configs) SKIP_CONFIGS=1; shift ;;
-        -h|--help) sed -n '2,28p' "$0"; exit 0 ;;
+        -h|--help) sed -n '2,33p' "$0"; exit 0 ;;
         *) echo "unknown option: $1 (see --help)"; exit 2 ;;
     esac
 done
 mkdir -p "$WORK"
 
-LAUNCH_OPTS='WINEDLLOVERRIDES="ddraw=n,b;dinput=n,b;dinput8=n,b;windowscodecs=b" %command%'
+# Steam Launch Options the installer sets/prints. WINEDLLOVERRIDES makes the
+# game-dir ddraw/dinput hooks load. (We do NOT wrap %command% — intercepting it
+# breaks the Proton launch; the first-launch shader wait is explained in text below.)
+LAUNCH_OPTS="WINEDLLOVERRIDES=\"ddraw=n,b;dinput=n,b;dinput8=n,b;windowscodecs=b\" %command%"
+
+print_manual_steam_steps() {
+    cat <<EOF
+  In Steam, X-Wing Alliance -> Properties:
+    * Compatibility -> force a Proton >= 11 (Hotfix / Experimental / Proton 11).
+    * General -> Launch Options -> paste exactly:
+
+        $LAUNCH_OPTS
+
+    * Launch from Steam.
+EOF
+}
+
+configure_steam() {
+    if [ "$DO_STEAM_CONFIG" != 1 ]; then
+        log "Steam config (manual — --no-steam-config)"; print_manual_steam_steps; return 0
+    fi
+    if pgrep -x steam >/dev/null 2>&1; then
+        warn "Steam is running — can't safely edit its config. Close Steam completely, then run:"
+        echo "    \"$0\" --steam-config-only"
+        print_manual_steam_steps
+        return 0
+    fi
+    log "Configuring Steam (Proton compat tool + launch options) for appid $APPID"
+    if python3 "$SCRIPT_DIR/installer/steam_config.py" --steam-root "$STEAM_ROOT" \
+         --appid "$APPID" --token "$PROTON_TOKEN" --launch-options "$LAUNCH_OPTS"; then
+        echo "    Done. Start Steam and just press Play (Proton + launch options are set)."
+    else
+        warn "auto-config didn't complete; set it manually:"; print_manual_steam_steps
+    fi
+}
+
+# --steam-config-only: just (re)apply the Steam config + wrapper, then exit.
+if [ "$STEAM_CONFIG_ONLY" = 1 ]; then
+    command -v python3 >/dev/null || die "missing 'python3'"
+    configure_steam
+    exit 0
+fi
 
 # ---------------------------------------------------------------- step 1: deps
 log "Checking host dependencies"
@@ -129,27 +185,23 @@ xwau_vanilla_backup "$GAME"
 # ---------------------------------------------------------------- step 8: config
 [ "$SKIP_CONFIGS" = 1 ] || xwau_config_overlay "$GAME" "$RESOLUTION" "$CONCOURSE_PACE"
 
-# ---------------------------------------------------------------- done: Steam setup
+# ---------------------------------------------------------------- step 9: configure Steam
+configure_steam
+
+# ---------------------------------------------------------------- done
 log "Install complete (win64 via Steam Proton)"
 cat <<EOF
 
-  Finish in Steam (X-Wing Alliance -> Properties):
+  Launch X-Wing Alliance from Steam. (Proton supplies wine-mono + DXVK + libvkd3d
+  + codecs in its container; the launch-options overrides load the game-dir
+  ddraw/dinput hooks. No bundled wine.)
 
-  1. Compatibility -> "Force the use of a specific Steam Play compatibility tool"
-     -> Proton Hotfix (or Proton Experimental) — must be wine-11 or newer.
-
-  2. General -> Launch Options -> paste exactly:
-
-       $LAUNCH_OPTS
-
-     (Proton supplies wine-mono + DXVK + libvkd3d + codecs in its container; these
-      overrides just make the game-dir ddraw/dinput hooks load. No bundled wine.)
-
-  3. Launch from Steam. First launch compiles shaders — give it a minute.
-
-  IMPORTANT:
+  NOTES:
+    * BE PATIENT ON THE FIRST LAUNCH: it builds the DXVK shader cache, so it can
+      take a few minutes and may look frozen or open extra "side-loader" windows
+      (the XWAU launcher's helper processes — harmless). Later launches are fast.
     * NEVER use Steam "Verify integrity of game files". Restore: $GAME.vanilla
     * If the menu renders half-size, re-run with --resolution (e.g.
       --resolution 1920x1080 --skip-xwau --skip-binaries).
-    * Proton log: enable PROTON_LOG=1 (writes ~/steam-361670.log).
+    * Proton log for debugging: add PROTON_LOG=1 to Launch Options (writes ~/steam-361670.log).
 EOF
