@@ -21,19 +21,16 @@ detection and config keys whose defaults preserve stock behavior:
 
 ## What's in this repo
 
-- `player/` — **Xwa32bppPlayer32**: a 32-bit out-of-process port of the XWAU
-  HD-OPT sideload player (mingw C++ CLR host + C# bridge). Required because
-  the Linux setup uses a 32-bit wine prefix (the .NET hooks host the CLR in
-  DllMain, which only works there), and the upstream x64 player cannot run
-  in it. Includes `DownscaleToFit`: skinned-OPT textures are halved until the
-  blob fits a configurable cap — a 32-bit address space under wine cannot
-  take the full-size blobs (`SkinsSizeThreshold` in `Xwa32bppPlayer32.cfg`).
+- `hook-patcher-native/` — a native (unmanaged) C++ reimplementation of XWAU's
+  managed `hook_patcher`. The upstream one is a managed IJW assembly that
+  bootstraps the CLR in `DllMain`; the native port removes that so the game can
+  run under **wine-mono** (no ~400 MB dotnet48 install). See its README.
 - `hook-keyboard-bg/` — **hook_keyboard_bg.dll**: patches the DirectInput
   keyboard cooperative level FOREGROUND→BACKGROUND so the keyboard survives
   wine's focus juggling on Esc-to-menu. **Linux-only: do not install on
   Windows** (it would read keys while the game is unfocused).
-- `tools/` — the launcher (GE-Proton8-26 provides both wine and codecs;
-  win32 prefix with real .NET 4.8).
+- `tools/` — the launcher (`xwa-w64-launch.sh`; no sidecar pre-start).
+- `docs/win64-architecture.md` — the win64 architecture (this branch).
 
 ## Releases
 
@@ -42,21 +39,23 @@ Linux binaries (built from the PR branches above). An automated installer
 script is in progress; until then the setup requires a manually prepared
 win32 wine prefix with .NET 4.8 — full guide coming.
 
-## Known limitation: 32-bit memory pressure
+## Architecture: win64 (this branch)
 
-Because the setup is pinned to a 32-bit wine prefix (XWAU's .NET hooks host
-the CLR in `DllMain`, which only works there), the game can occasionally run
-out of address space entering a mission. It is nondeterministic and largely
-mitigated by the installer defaults (Medium preset, skin-size cap, raytracing
-off, out-of-process OPT loader). Causes, evidence, and what does/doesn't help
-are documented in [docs/memory-pressure.md](docs/memory-pressure.md).
+The 32-bit game runs under **WoW64 in a win64 wine prefix**: the .NET hooks run
+**in-process** (no sidecar), full-res skins fit, and HD concourse + HD video both
+render. There is **no 2 GB VA ceiling** and no mission-entry memory-pressure crash
+— the win32 mitigations (sidecar, skins downscale, preset clamp, raytracing-off)
+are gone. See [docs/win64-architecture.md](docs/win64-architecture.md). The
+historical win32 limitation is kept (win32-only) in
+[docs/memory-pressure.md](docs/memory-pressure.md).
 
 ## Requirements (summary)
 
 - Steam + X-Wing Alliance (appid 361670) + XWAU 2025
-- GE-Proton8-26 (its wine runs the game *and* decodes the H.264 cutscenes)
-- A 32-bit wine prefix with real .NET Framework 4.8 (winetricks `dotnet48`)
-- 32-bit Vulkan drivers (any Steam install has them)
+- **wine-11** (HD-video Media Foundation + the in-process hooks need it)
+- A **win64** wine prefix with a CLR runtime: **wine-mono** (default) *or* dotnet48
+- DXVK (32-bit DLLs for the WoW64 game) + 32-bit Vulkan drivers
+- the win64 binaries (see the installer's open decisions — no win64 release yet)
 
 ## License
 

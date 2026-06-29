@@ -1,5 +1,11 @@
 # Memory pressure & the mission-entry crash (32-bit address space)
 
+> **WIN32-ONLY (historical).** This entire problem class belongs to the `main`
+> (win32) architecture. The `win64` architecture runs the game under WoW64 in a
+> win64 prefix with **no 2 GB VA ceiling**, so the mission-entry memory-pressure
+> crash, the sidecar, and the skins downscale are all **gone** there. Keep this
+> doc for the win32 path; it does not apply to win64. See `win64-architecture.md`.
+
 This document explains a real, partly-unavoidable fragility of running XWAU
 2025 on Linux/wine: **32-bit virtual-address-space exhaustion**, which can
 crash the game at mission entry. It records the causes, the evidence, what
