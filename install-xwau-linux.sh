@@ -211,6 +211,11 @@ else
     "$WINE" reg add "HKCU\\Software\\Wine\\DllOverrides" /v "dinput8" /d native,builtin /f
     "$WINE" reg add "HKCU\\Software\\Wine\\DllOverrides" /v "*windowscodecs" /d builtin /f
     "$WINE" reg add "HKCU\\Software\\Wine\\DllOverrides" /v "*windowscodecsext" /d builtin /f
+    # The XWAU launcher (alliance.exe) is a WPF app; WPF renders via Direct3D and can
+    # show a BLACK window under wine on some GPU/DPI combos (users otherwise have to
+    # set wine DPI to 120 to work around it). Force WPF SOFTWARE rendering so the
+    # launcher menu renders reliably. Runtime-independent; harmless on Windows.
+    "$WINE" reg add "HKCU\\Software\\Microsoft\\Avalon.Graphics" /v DisableHWAcceleration /t REG_DWORD /d 1 /f
     if [ "$RUNTIME" = dotnet48 ]; then
         "$WINE" reg add "HKCU\\Software\\Wine\\DllOverrides" /v "*mscoree" /d native /f
         "$WINE" reg add "HKLM\\Software\\Microsoft\\.NETFramework" /v OnlyUseLatestCLR /t REG_DWORD /d 1 /f
