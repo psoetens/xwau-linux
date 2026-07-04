@@ -16,7 +16,7 @@
 #   ./install-xwau-linux.sh --xwau-full .../Full.zip --xwau-upd .../UPD.zip \
 #                           --bin-dir /path/to/win64/binaries
 # Options:
-#   --game-dir PATH    game dir (default: auto-detect Steam)
+#   --game-dir PATH    game dir (the dir you innoextract'd the offline installer into)
 #   --prefix PATH      wine prefix (default: ~/.local/share/xwa-prefix-w64)
 #   --work-dir PATH    scratch dir (default: ~/.cache/xwau-linux-install)
 #   --wine-version V   Kron4ek wine version to fetch (default: 11.11)
@@ -28,8 +28,6 @@
 #   --preset NAME      veryLow|Low|Medium|High|Ultra (default High; no VA ceiling on win64)
 #   --resolution WxH   force [hook_resolution]
 #   --skip-prefix --skip-xwau --skip-binaries --skip-configs   resume helpers
-#
-# NEVER run Steam "Verify integrity of game files" on a modded install.
 
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -71,11 +69,25 @@ while [ $# -gt 0 ]; do
         --skip-xwau) SKIP_XWAU=1; shift ;;
         --skip-binaries) SKIP_BINARIES=1; shift ;;
         --skip-configs) SKIP_CONFIGS=1; shift ;;
-        -h|--help) sed -n '2,33p' "$0"; exit 0 ;;
+        -h|--help) sed -n '2,30p' "$0"; exit 0 ;;
         *) echo "unknown option: $1 (see --help)"; exit 2 ;;
     esac
 done
 case "$RUNTIME" in wine-mono|dotnet48) ;; *) die "bad --runtime: $RUNTIME" ;; esac
+
+# ---------------------------------------------------------------- validate args (fail fast)
+# Verify up front that every path passed as an argument exists, so a typo/missing
+# file fails now instead of mid-install (after the slow prefix build + downloads).
+if [ -n "$GAME" ]     && [ ! -d "$GAME" ];              then die "--game-dir not found: $GAME"; fi
+if [ -n "$WINE_DIR" ] && [ ! -x "$WINE_DIR/bin/wine" ]; then die "--wine-dir has no bin/wine executable: $WINE_DIR"; fi
+if [ -n "$BIN_DIR" ]  && [ ! -d "$BIN_DIR" ];           then die "--bin-dir not found: $BIN_DIR"; fi
+if [ "$SKIP_XWAU" != 1 ]; then
+    [ -n "$XWAU_FULL" ] || die "--xwau-full is required (or pass --skip-xwau) — download the XWAU 2025 zips from https://www.xwaupgrade.com/"
+    [ -n "$XWAU_UPD" ]  || die "--xwau-upd is required (or pass --skip-xwau)"
+    [ -f "$XWAU_FULL" ] || die "--xwau-full not found: $XWAU_FULL"
+    [ -f "$XWAU_UPD" ]  || die "--xwau-upd not found: $XWAU_UPD"
+fi
+
 mkdir -p "$WORK"
 
 # ---------------------------------------------------------------- step 1: deps
@@ -87,8 +99,8 @@ xwau_check_fonts
 
 # ---------------------------------------------------------------- step 2: game dir
 if [ -z "$GAME" ]; then
-    log "Locating X-Wing Alliance (Steam appid 361670)"
-    GAME="$(xwau_locate_game)" || die "could not find the game — install it from Steam, or pass --game-dir"
+    log "Locating X-Wing Alliance"
+    GAME="$(xwau_locate_game)" || die "could not find the game — pass --game-dir (GOG: innoextract the offline installer first; see README)"
 fi
 [ -d "$GAME" ] || die "game dir not found: $GAME"
 echo "    game: $GAME"
@@ -314,15 +326,15 @@ else
     echo "    video codec deps OK (mp4/h264/aac)"
 fi
 
-log "Install complete (win64 standalone: Kron4ek wine-$WINE_VERSION + $RUNTIME)"
+log "Install complete (standalone: Kron4ek wine-$WINE_VERSION + $RUNTIME)"
 cat <<EOF
 
-  Steam Launch Options (X-Wing Alliance -> Properties -> Launch Options):
+  Launch the game with:
 
-    bash -c 'exec "$LAUNCHER"' %command%
+    $LAUNCHER
 
   IMPORTANT:
-    * NEVER use Steam "Verify integrity of game files". Restore: $GAME.vanilla
+    * A pristine backup of the game dir (restore point) is kept at: $GAME.vanilla
     * If the menu renders half-size, re-run with --resolution (e.g.
       --resolution 1920x1080 --skip-prefix --skip-xwau --skip-binaries).
     * Log: ~/xwa-linux.log
