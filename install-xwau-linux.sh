@@ -175,10 +175,34 @@ else
         [ -f "$CLR_MARKER" ] || die ".NET 4.8 install failed"
     fi
 
-    log "Installing DXVK (from $GE_NAME donor) + DLL overrides"
-    # 32-bit DXVK for the WoW64 game -> syswow64; 64-bit -> system32
-    cp "$GE/lib/wine/dxvk/"*.dll "$PREFIX/drive_c/windows/syswow64/" 2>/dev/null || true
-    [ -d "$GE/lib64/wine/dxvk" ] && cp "$GE/lib64/wine/dxvk/"*.dll "$PREFIX/drive_c/windows/system32/" 2>/dev/null || true
+    log "Installing DXVK + vkd3d (from $GE_NAME donor) + DLL overrides"
+    # GE keeps the DXVK PE DLLs in dxvk/{i386,x86_64}-windows subdirs (NOT flat in
+    # dxvk/, and not under lib64/), and libvkd3d in its default_pfx. The 32-bit
+    # WoW64 game needs the 32-bit set in syswow64; the 64-bit set goes to system32.
+    # Without DXVK (dxgi/d3d11) AND libvkd3d (wine's d2d1 shader backend),
+    # dxgi->d3d10_1->d2d1 fail to load -> DDraw_Effects/hook_concourse can't load
+    # -> 0xC0000005 null-call crash at launch. See reports/win64-clr-hosting-fix.md.
+    SYSW="$PREFIX/drive_c/windows/syswow64"
+    SYS32="$PREFIX/drive_c/windows/system32"
+    if [ -d "$GE/lib/wine/dxvk/i386-windows" ]; then
+        cp -f "$GE/lib/wine/dxvk/i386-windows/"*.dll "$SYSW/" 2>/dev/null || true
+    else
+        warn "DXVK i386 dir not found under $GE/lib/wine/dxvk — check GE-Proton layout"
+    fi
+    [ -d "$GE/lib/wine/dxvk/x86_64-windows" ] && \
+        cp -f "$GE/lib/wine/dxvk/x86_64-windows/"*.dll "$SYS32/" 2>/dev/null || true
+    # libvkd3d: 32-bit -> syswow64, 64-bit -> system32 (prefer default_pfx, then lib/vkd3d)
+    GEPFX="$GE/share/default_pfx/drive_c/windows"
+    for d in libvkd3d-1.dll libvkd3d-shader-1.dll; do
+        s32="$GEPFX/syswow64/$d"; [ -f "$s32" ] || s32="$GE/lib/vkd3d/i386-windows/$d"
+        s64="$GEPFX/system32/$d"; [ -f "$s64" ] || s64="$GE/lib/vkd3d/x86_64-windows/$d"
+        [ -f "$s32" ] && cp -f "$s32" "$SYSW/$d" || true
+        [ -f "$s64" ] && cp -f "$s64" "$SYS32/$d" || true
+    done
+    # sanity: the 32-bit pieces the game actually loads at launch
+    for d in dxgi.dll d3d11.dll libvkd3d-shader-1.dll; do
+        [ -f "$SYSW/$d" ] || warn "$d missing in syswow64 after DXVK/vkd3d install — HD concourse/effects will fail"
+    done
     for o in "*d3d11" "*d3d10core" "*d3d9" "*d3d8" "*dxgi"; do
         "$WINE" reg add "HKCU\\Software\\Wine\\DllOverrides" /v "$o" /d native /f
     done
@@ -204,6 +228,35 @@ fi
 # ---------------------------------------------------------------- step 9: config
 [ "$SKIP_CONFIGS" = 1 ] || xwau_config_overlay "$GAME" "$RESOLUTION" "$CONCOURSE_PACE"
 
+# ---------------------------------------------------------------- step 9b: 32-bit codec libs
+# The HD .mp4 cutscene decoder (GE's 32-bit libgstlibav -> libavcodec) needs
+# libvpx.so.6, which GE does NOT ship in 32-bit. Stage it into a game-local lib
+# dir the launcher adds to LD_LIBRARY_PATH; without it decodebin can't build and
+# cutscenes are black (audio only). libvpx is BSD-licensed (redistributable).
+LIB32="$GAME/.linux-lib32"
+mkdir -p "$LIB32"
+if [ -f "$LIB32/libvpx.so.6" ]; then
+    log "32-bit libvpx.so.6 already staged"
+else
+    log "Staging 32-bit libvpx.so.6 (HD cutscene codec dep)"
+    vpx_src=""
+    for c in \
+        "$HOME/.local/share/Steam/ubuntu12_32/libvpx.so.6" \
+        "$HOME/.local/share/Steam/steamrt32/libvpx.so.6" \
+        "$HOME"/.local/share/Steam/steamapps/common/SteamLinuxRuntime_sniper/*/files/lib/i386-linux-gnu/libvpx.so.6* \
+        /usr/lib/i386-linux-gnu/libvpx.so.6 ; do
+        [ -f "$c" ] && { vpx_src="$c"; break; } || true
+    done
+    if [ -n "$vpx_src" ]; then
+        cp -f "$vpx_src" "$LIB32/libvpx.so.6"; echo "    staged from $vpx_src"
+    elif curl -fLsS -o "$LIB32/libvpx.so.6" "$XWAU_RELEASE_BASE/$RELEASE_TAG/libvpx.so.6"; then
+        echo "    downloaded from release $RELEASE_TAG"
+    else
+        rm -f "$LIB32/libvpx.so.6"
+        warn "no 32-bit libvpx.so.6 found locally and none in release $RELEASE_TAG — HD cutscenes will be black; upload libvpx.so.6 to the release or drop it in $LIB32/"
+    fi
+fi
+
 # ---------------------------------------------------------------- step 10: launcher
 log "Installing launcher (win64 standalone; no sidecar)"
 LAUNCHER="$GAME/xwa-linux-launch.sh"
@@ -212,15 +265,19 @@ cat > "$LAUNCHER" <<LAUNCHEOF
 # XWAU-on-Linux launcher (win64 standalone, Kron4ek wine + GE codec donor).
 WINE_DIR="$WINE_DIR"
 GE="$GE"
+GAME="$GAME"
 export WINEPREFIX="$PREFIX"
 "\$WINE_DIR/bin/wineserver" -k 2>/dev/null; sleep 1
 export WINELOADER="\$WINE_DIR/bin/wine" WINESERVER="\$WINE_DIR/bin/wineserver"
 export PATH="\$WINE_DIR/bin:\$PATH"
-# HD .mp4 cutscenes go through Media Foundation -> winegstreamer; point it at GE's
-# gstreamer plugins (libav/h264) since Kron4ek wine ships no codecs.
-export GST_PLUGIN_SYSTEM_PATH_1_0="\$GE/lib/gstreamer-1.0:\$GE/lib64/gstreamer-1.0"
+# HD .mp4 cutscenes go through Media Foundation -> winegstreamer. The game is
+# 32-bit (WoW64), so use GE's 32-bit gstreamer plugins + GE's 32-bit codec libs,
+# plus the game-local libvpx.so.6 (GE ships no 32-bit libvpx). Kron4ek ships no
+# codecs, hence the GE donor.
+export GST_PLUGIN_SYSTEM_PATH_1_0="\$GE/lib/i386-linux-gnu/gstreamer-1.0"
 export GST_PLUGIN_PATH="\$GST_PLUGIN_SYSTEM_PATH_1_0"
-GAME="$GAME"; cd "\$GAME" || exit 1
+export LD_LIBRARY_PATH="\$GAME/.linux-lib32:\$GE/lib/i386-linux-gnu:\${LD_LIBRARY_PATH:-}"
+cd "\$GAME" || exit 1
 export WINEDEBUG=-all
 "\$WINE_DIR/bin/wine" "\$GAME/xwingalliance.exe" > "\$HOME/xwa-linux.log" 2>&1
 RC=\$?
@@ -228,6 +285,29 @@ RC=\$?
 exit \$RC
 LAUNCHEOF
 chmod +x "$LAUNCHER"
+
+# ---------------------------------------------------------------- step 11: video codec self-check
+# Resolve the 32-bit cutscene decode plugins exactly as the launcher will, and
+# report any missing dep LOUDLY now — so a gap surfaces here, not as silent black
+# cutscenes for the user.
+log "Checking 32-bit video codec deps (HD cutscenes)"
+_gst32="$GE/lib/i386-linux-gnu/gstreamer-1.0"
+_vid_missing=0
+for p in libgstlibav libgstisomp4 libgstvideoparsersbad; do
+    _so="$_gst32/$p.so"
+    if [ ! -f "$_so" ]; then
+        warn "video: $p.so not found in GE donor ($_gst32)"; _vid_missing=1; continue
+    fi
+    _miss=$(LD_LIBRARY_PATH="$GAME/.linux-lib32:$GE/lib/i386-linux-gnu" ldd "$_so" 2>/dev/null | awk '/not found/{print $1}' | tr '\n' ' ')
+    if [ -n "$_miss" ]; then
+        warn "video: $p.so is missing 32-bit dep(s): $_miss"; _vid_missing=1
+    fi
+done
+if [ "$_vid_missing" = 1 ]; then
+    warn "HD cutscenes will be BLACK (audio only) until the missing 32-bit lib(s) above are placed in $GAME/.linux-lib32/"
+else
+    echo "    video codec deps OK (mp4/h264/aac)"
+fi
 
 log "Install complete (win64 standalone: Kron4ek wine-$WINE_VERSION + $RUNTIME)"
 cat <<EOF
