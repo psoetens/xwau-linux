@@ -4,7 +4,7 @@
 [XWAU 2025](https://www.xwaupgrade.com/) mod running end-to-end on
 Linux/wine: HD concourse with crisp text, 30fps HD cutscenes, briefings,
 missions and the simulator. Works with both the **GOG** and **Steam**
-versions of the game. User-verified over many sessions (2026).
+versions of the game.
 
 This repository hosts the Linux-specific pieces and a one-script installer.
 The substantive fixes live as pull requests against the XWAU code
@@ -24,17 +24,17 @@ detection and config keys whose defaults preserve stock behavior:
 
 Two installers — **pick the one for where you own the game:**
 
-- **Steam → `install-xwau-steam.sh`** (recommended for Steam owners). Uses
+- **Steam → `install-xwau-steam.sh`** . Uses
   Steam's **Proton** (≥ wine-11: "Proton Hotfix" / "Experimental" / "Proton 11"),
   which already provides wine-11 + DXVK + libvkd3d + gstreamer codecs +
   wine-mono in its Steam Linux Runtime container. The script lays down the
   game files + config and **auto-configures Steam** (sets the Proton compat
-  tool + Launch Options for you — Steam must be closed; if it's running it
+  tool + Launch Options for you — **Steam must be closed**; if it's running it
   tells you to re-run with `--steam-config-only`). No bundled wine. (Be
   patient on the first launch — it compiles the DXVK shader cache and can look
   frozen for a minute; later launches are fast.)
 
-- **GOG (or any non-Steam copy) → `install-xwau-linux.sh`** (standalone).
+- **GOG (or any non-Steam copy) → `install-xwau-linux.sh`** .
   Bundles **Kron4ek wine-11** + **wine-mono**, and uses a **GE-Proton** as the
   DXVK + gstreamer-codec donor. It builds its own wine prefix and writes a
   launcher — no Steam required. See the GOG setup below.
@@ -58,7 +58,7 @@ The offline installer is an Inno Setup archive — unpack it on Linux with
 ```bash
 sudo apt install innoextract          # or your distro's package
 cd ~/Downloads                         # wherever the setup exe lives
-innoextract -I app "setup_star_wars_-_x-wing_alliance_2.02_(18061).exe"
+innoextract -I app "setup_star_wars_-_x-wing_alliance_2.02_(NNNNN).exe" # replace NNNNN with the actual filename number
 # -> creates ./app/ with the vanilla game (Alliance.EXE, XWINGALLIANCE.EXE, ...)
 ```
 
