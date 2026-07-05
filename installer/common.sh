@@ -195,3 +195,151 @@ set_key(tgs, 'MFSoftwarePresent', '0')
 set_key(tgs, 'MFD3DPresent', '1')
 PYCFG
 }
+
+# ---- 32-bit codec deps for HD cutscenes --------------------------------------
+# GE's 32-bit gstreamer cutscene plugins (libgstlibav/isomp4/videoparsersbad ->
+# ffmpeg) need a slice of the host's 32-bit userland that GE does NOT ship. Two
+# of those deps are "soname traps" we stage ourselves (see xwau_stage_leaf); the
+# rest MUST come from the host's multilib packages — notably the GPU/display libs
+# (libva/libvdpau/libdrm/libX11...) which have to match the running driver and so
+# can't be bundled. This by-name list is coupled to the pinned GE-Proton version
+# (GE-Proton10-34); if GE_NAME is bumped, re-derive it with:
+#   LD_LIBRARY_PATH=$GE/lib/i386-linux-gnu ldd $GE/lib/i386-linux-gnu/gstreamer-1.0/libgstlibav.so
+# (glibc base libc/libm/ld-linux are omitted: if any i386 lib resolves, they do).
+XWAU_CODEC_SONAMES="libglib-2.0.so.0 libgobject-2.0.so.0 libgmodule-2.0.so.0 \
+libz.so.1 libffi.so.8 libpcre2-8.so.0 libatomic.so.1 \
+libva.so.2 libva-drm.so.2 libva-x11.so.2 libvdpau.so.1 libdrm.so.2 \
+libX11.so.6 libX11-xcb.so.1 libxcb.so.1 libxcb-dri3.so.0 \
+libXext.so.6 libXfixes.so.3 libXau.so.6 libXdmcp.so.6"
+
+# true if the given file is a 32-bit ELF (EI_CLASS byte at offset 4 == 1).
+_xwau_is_elf32() { [ "$(od -An -t u1 -j4 -N1 "$1" 2>/dev/null | tr -d ' ')" = 1 ]; }
+
+# true if a 32-bit build of $1 (soname) is in the loader cache. The i386 entries
+# carry an arch tag of "(libc6)" while 64-bit ones read "(libc6,x86-64)"; filter
+# out x86-64/x32 so only the 32-bit variants count. Works on Debian and Fedora.
+_xwau_have32() {  # $1 = soname   (reads cached $_XWAU_LDC)
+    printf '%s\n' "$_XWAU_LDC" | grep -F "$1 (" | grep -Ev 'x86-64|x32' | grep -q .
+}
+
+# Print a copy-pasteable, per-distro "install the 32-bit codec libs" command.
+_xwau_codec_fixhint() {  # $1 = space-separated missing sonames (for context only)
+    local id like ctx
+    id="$(. /etc/os-release 2>/dev/null; echo "${ID:-}")"
+    like="$(. /etc/os-release 2>/dev/null; echo "${ID_LIKE:-}")"
+    ctx="$id $like"
+    if [ -f /run/ostree-booted ]; then
+        cat <<'EOF'
+  Your system is image-based (immutable / ostree, e.g. Bazzite/Silverblue).
+  These 32-bit libs normally ship preinstalled there, so hitting this is
+  unusual. Layering codec libs is discouraged (needs a reboot and can slow OS
+  updates), but the direct fix is:
+      sudo rpm-ostree install glib2.i686 zlib-ng-compat.i686 libffi.i686 \
+        pcre2.i686 libatomic.i686 libva.i686 libvdpau.i686 libdrm.i686 \
+        libX11.i686 libxcb.i686 libXext.i686 libXfixes.i686 libXau.i686 \
+        libXdmcp.i686 && systemctl reboot
+EOF
+        return
+    fi
+    case "$ctx" in
+        *fedora*|*rhel*|*centos*)
+            cat <<'EOF'
+  Fedora / RHEL — run:
+      sudo dnf install -y glib2.i686 zlib-ng-compat.i686 libffi.i686 pcre2.i686 \
+        libatomic.i686 bzip2-libs.i686 libva.i686 libvdpau.i686 libdrm.i686 \
+        libX11.i686 libxcb.i686 libXext.i686 libXfixes.i686 libXau.i686 libXdmcp.i686
+EOF
+            ;;
+        *arch*|*manjaro*)
+            cat <<'EOF'
+  Arch / Manjaro — enable the [multilib] repo in /etc/pacman.conf, then run:
+      sudo pacman -S --needed lib32-glib2 lib32-zlib lib32-libffi lib32-pcre2 \
+        lib32-bzip2 lib32-libva lib32-libvdpau lib32-libdrm lib32-libx11 \
+        lib32-libxcb lib32-libxext lib32-libxfixes lib32-libxau lib32-libxdmcp \
+        lib32-gcc-libs
+EOF
+            ;;
+        *debian*|*ubuntu*|*mint*)
+            cat <<'EOF'
+  Debian / Ubuntu / Mint — run:
+      sudo dpkg --add-architecture i386 && sudo apt update && sudo apt install -y \
+        libglib2.0-0t64:i386 zlib1g:i386 libffi8:i386 libpcre2-8-0:i386 \
+        libatomic1:i386 libbz2-1.0:i386 libva2:i386 libva-drm2:i386 \
+        libva-x11-2:i386 libvdpau1:i386 libdrm2:i386 libx11-6:i386 \
+        libx11-xcb1:i386 libxcb1:i386 libxcb-dri3-0:i386 libxext6:i386 \
+        libxfixes3:i386 libxau6:i386 libxdmcp6:i386
+  (on releases predating the t64 transition, use libglib2.0-0:i386 instead.)
+EOF
+            ;;
+        *)
+            cat <<'EOF'
+  Unknown distro — install the 32-bit (i686 / i386) build of each library listed
+  above with your package manager, then re-run this installer.
+EOF
+            ;;
+    esac
+}
+
+# Fail EARLY (before any download/extraction) if the host lacks the 32-bit stack
+# HD cutscenes need. GE-independent: probes XWAU_CODEC_SONAMES via ldconfig, so it
+# runs before the GE donor is even fetched. The two soname-trap leaves (libvpx.so.6,
+# libbz2.so.1.0) are intentionally NOT probed here — xwau_stage_leaf always provides
+# them, so their absence is never a reason to abort.
+xwau_codec_preflight() {  # $1 = 1 to bypass the die (--skip-codec-check)
+    local skip="${1:-0}"
+    log "Checking 32-bit codec deps for HD cutscenes (before download)"
+    local _XWAU_LDC
+    _XWAU_LDC="$( { ldconfig -p 2>/dev/null || /sbin/ldconfig -p 2>/dev/null; } || true )"
+    local missing="" s
+    for s in $XWAU_CODEC_SONAMES; do
+        _xwau_have32 "$s" || missing="$missing $s"
+    done
+    missing="${missing# }"
+    if [ -z "$missing" ]; then
+        echo "    32-bit codec stack present"
+        return 0
+    fi
+    warn "missing 32-bit libraries required for HD cutscenes:"
+    printf '      %s\n' $missing
+    echo
+    _xwau_codec_fixhint "$missing"
+    echo
+    if [ "$skip" = 1 ]; then
+        warn "--skip-codec-check set: continuing anyway; HD cutscenes will be BLACK (audio only)"
+        return 0
+    fi
+    die "install the 32-bit libraries above (single command in the box), then re-run — or pass --skip-codec-check to install without HD cutscenes."
+}
+
+# Stage one 32-bit "soname-trap leaf" into LIB32 under the exact name GE's plugins
+# ask for. GE ships neither, and the host either lacks it (libvpx: no distro ships
+# .so.6 anymore) or has it under an incompatible soname (Fedora patches bzip2 to
+# libbz2.so.1 vs the Debian soname libbz2.so.1.0). Order: exact host name ->
+# compatible host name (ABI-identical; copied+renamed) -> release download. All
+# candidates are ELF32-verified so a same-named 64-bit lib is never staged.
+# Both leaves are BSD/bzip2-licensed and redistributable.
+xwau_stage_leaf() {  # $1=lib32dir $2=wanted-soname $3=release_tag [compat basenames...]
+    local lib32="$1" want="$2" tag="$3"; shift 3
+    if [ -f "$lib32/$want" ]; then log "32-bit $want already staged"; return 0; fi
+    log "Staging 32-bit $want (HD cutscene codec dep)"
+    local names="$want $*" d n src=""
+    for d in \
+        "$HOME/.local/share/Steam/ubuntu12_32" \
+        "$HOME/.local/share/Steam/steamrt32" \
+        "$HOME"/.local/share/Steam/steamapps/common/SteamLinuxRuntime_sniper/*/files/lib/i386-linux-gnu \
+        /usr/lib/i386-linux-gnu /usr/lib32 /usr/lib ; do
+        [ -d "$d" ] || continue
+        for n in $names; do
+            if [ -f "$d/$n" ] && _xwau_is_elf32 "$d/$n"; then src="$d/$n"; break 2; fi
+        done
+    done
+    if [ -n "$src" ]; then
+        cp -fL "$src" "$lib32/$want"; echo "    staged from $src"; return 0
+    fi
+    if curl -fLsS -o "$lib32/$want" "$XWAU_RELEASE_BASE/$tag/$want"; then
+        echo "    downloaded from release $tag"; return 0
+    fi
+    rm -f "$lib32/$want"
+    warn "no 32-bit source for $want found locally and none in release $tag — HD cutscenes may be black; drop $want in $lib32/ or upload it to the release"
+    return 1
+}

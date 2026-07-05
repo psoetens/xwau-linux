@@ -45,6 +45,27 @@ Both installers need the two XWAU 2025 zips, which you download yourself from
 Linux binaries from the latest release**; pass `--bin-dir` only if you want to
 use a local build instead.
 
+## Get the installer
+
+You don't need `git` — grab the release tarball and unpack it (the installer is
+a small tree of scripts, not a single file, so download the whole thing):
+
+```bash
+curl -fL https://github.com/psoetens/xwau-linux/archive/refs/tags/v0.3.0.tar.gz | tar xz
+cd xwau-linux-0.3.0
+```
+
+That tag's scripts are pinned to download the matching prebuilt binaries, so the
+two always stay in sync. For a different version, swap `v0.3.0` for any tag on
+the [Releases](https://github.com/psoetens/xwau-linux/releases) page.
+
+If you *do* have `git` (e.g. to contribute or track `main`):
+
+```bash
+git clone https://github.com/psoetens/xwau-linux.git
+cd xwau-linux
+```
+
 ## GOG users: prepare the game from the offline installer
 
 Download the **offline backup installer** from your GOG account — the file
@@ -105,11 +126,19 @@ game and wires up Steam's Launch Options.)
 
 ## Troubleshooting
 
-- **HD cutscenes are black (audio only):** the standalone installer runs a
-  post-install check that names any missing 32-bit codec library. GE-Proton
-  ships everything except a 32-bit `libvpx.so.6`; the installer stages one if
-  it can find a local copy, otherwise drop a 32-bit `libvpx.so.6` into
-  `<game-dir>/.linux-lib32/`.
+- **HD cutscenes are black (audio only):** GE's 32-bit cutscene codecs need a
+  slice of the host's **32-bit (multilib) userland** that GE itself does not
+  ship. The standalone installer checks for it up front — *before* any large
+  download — and if it's missing it stops and prints the exact one-line
+  `apt`/`dnf`/`pacman` command to install it (pass `--skip-codec-check` to
+  install anyway with audio-only cutscenes). Two libraries are staged
+  automatically into `<game-dir>/.linux-lib32/` because no distro ships them
+  under the name GE wants — `libvpx.so.6` (soname retired everywhere) and
+  `libbz2.so.1.0` (Fedora patches bzip2's soname to `libbz2.so.1`); if neither
+  a local copy nor the release asset is available, drop them there by hand.
+  Note on immutable/atomic distros (Bazzite, Silverblue): the needed 32-bit
+  libs usually ship preinstalled, so this rarely triggers — avoid layering
+  codec libs with `rpm-ostree` unless the check actually flags something.
 - **The game exits immediately:** X-Wing Alliance quits if no
   joystick/controller is connected — plug one in.
 

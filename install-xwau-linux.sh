@@ -28,6 +28,8 @@
 #   --preset NAME      veryLow|Low|Medium|High|Ultra (default High; no VA ceiling on win64)
 #   --resolution WxH   force [hook_resolution]
 #   --skip-prefix --skip-xwau --skip-binaries --skip-configs   resume helpers
+#   --skip-codec-check     don't abort when the host lacks the 32-bit HD-cutscene
+#                          libs (install anyway; cutscenes play audio-only)
 
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -40,14 +42,14 @@ RUNTIME="wine-mono"                   # wine-mono | dotnet48
 MONO_MSI_VER="11.1.0"                 # wine-mono version (madewokherd/wine-mono)
 GE_NAME="GE-Proton10-34"              # DXVK + gstreamer-codec donor
 GE_URL="https://github.com/GloriousEggroll/proton-ge-custom/releases/download/${GE_NAME}/${GE_NAME}.tar.gz"
-RELEASE_TAG="v0.2.0"                   # win64 binaries downloaded from this release
+RELEASE_TAG="v0.3.0"                   # win64 binaries downloaded from this release
 BIN_DIR=""                            # --bin-dir = optional local-build override
 PREFIX="$HOME/.local/share/xwa-prefix-w64"
 WORK="$HOME/.cache/xwau-linux-install"
 COMPAT_DIR="$HOME/.local/share/Steam/compatibilitytools.d"
 GAME="" XWAU_FULL="" XWAU_UPD=""
 RATIO="2" PRESET="High" RESOLUTION="" CONCOURSE_PACE=""
-SKIP_PREFIX=0 SKIP_XWAU=0 SKIP_BINARIES=0 SKIP_CONFIGS=0
+SKIP_PREFIX=0 SKIP_XWAU=0 SKIP_BINARIES=0 SKIP_CONFIGS=0 SKIP_CODEC_CHECK=0
 
 while [ $# -gt 0 ]; do
     case "$1" in
@@ -69,6 +71,7 @@ while [ $# -gt 0 ]; do
         --skip-xwau) SKIP_XWAU=1; shift ;;
         --skip-binaries) SKIP_BINARIES=1; shift ;;
         --skip-configs) SKIP_CONFIGS=1; shift ;;
+        --skip-codec-check) SKIP_CODEC_CHECK=1; shift ;;
         -h|--help) sed -n '2,30p' "$0"; exit 0 ;;
         *) echo "unknown option: $1 (see --help)"; exit 2 ;;
     esac
@@ -104,6 +107,14 @@ if [ -z "$GAME" ]; then
 fi
 [ -d "$GAME" ] || die "game dir not found: $GAME"
 echo "    game: $GAME"
+
+# ------------------------------------------------------- step 2b: codec preflight (fail early)
+# Verify the host has the 32-bit userland GE's HD-cutscene codecs need BEFORE the
+# ~500 MB GE/wine downloads and the slow prefix build — so a multilib gap is a
+# 10-second "run this one command" stop, not a discovery after a long install.
+# GE-independent (probes the loader cache, not GE's plugins). --skip-codec-check
+# turns the abort into a warning for anyone who wants an audio-only install.
+xwau_codec_preflight "$SKIP_CODEC_CHECK"
 
 # ---------------------------------------------------------------- step 3: GE donor (DXVK + codecs)
 GE="$COMPAT_DIR/$GE_NAME/files"
@@ -246,33 +257,18 @@ fi
 [ "$SKIP_CONFIGS" = 1 ] || xwau_config_overlay "$GAME" "$RESOLUTION" "$CONCOURSE_PACE"
 
 # ---------------------------------------------------------------- step 9b: 32-bit codec libs
-# The HD .mp4 cutscene decoder (GE's 32-bit libgstlibav -> libavcodec) needs
-# libvpx.so.6, which GE does NOT ship in 32-bit. Stage it into a game-local lib
-# dir the launcher adds to LD_LIBRARY_PATH; without it decodebin can't build and
-# cutscenes are black (audio only). libvpx is BSD-licensed (redistributable).
+# GE's 32-bit HD .mp4 cutscene decoder needs two 32-bit "soname-trap" leaves GE
+# ships neither of, staged into a game-local dir the launcher adds to
+# LD_LIBRARY_PATH (without them decodebin can't build -> black cutscenes):
+#   libvpx.so.6    — no current distro ships the .so.6 soname (all moved past it)
+#   libbz2.so.1.0  — Fedora patches bzip2's soname to libbz2.so.1 (Debian keeps
+#                    .so.1.0), so on Fedora we stage its ABI-identical libbz2.so.1
+# The by-name host libs (glib/libva/libX11/...) were already gated in step 2b.
 LIB32="$GAME/.linux-lib32"
 mkdir -p "$LIB32"
-if [ -f "$LIB32/libvpx.so.6" ]; then
-    log "32-bit libvpx.so.6 already staged"
-else
-    log "Staging 32-bit libvpx.so.6 (HD cutscene codec dep)"
-    vpx_src=""
-    for c in \
-        "$HOME/.local/share/Steam/ubuntu12_32/libvpx.so.6" \
-        "$HOME/.local/share/Steam/steamrt32/libvpx.so.6" \
-        "$HOME"/.local/share/Steam/steamapps/common/SteamLinuxRuntime_sniper/*/files/lib/i386-linux-gnu/libvpx.so.6* \
-        /usr/lib/i386-linux-gnu/libvpx.so.6 ; do
-        [ -f "$c" ] && { vpx_src="$c"; break; } || true
-    done
-    if [ -n "$vpx_src" ]; then
-        cp -f "$vpx_src" "$LIB32/libvpx.so.6"; echo "    staged from $vpx_src"
-    elif curl -fLsS -o "$LIB32/libvpx.so.6" "$XWAU_RELEASE_BASE/$RELEASE_TAG/libvpx.so.6"; then
-        echo "    downloaded from release $RELEASE_TAG"
-    else
-        rm -f "$LIB32/libvpx.so.6"
-        warn "no 32-bit libvpx.so.6 found locally and none in release $RELEASE_TAG — HD cutscenes will be black; upload libvpx.so.6 to the release or drop it in $LIB32/"
-    fi
-fi
+xwau_stage_leaf "$LIB32" "libvpx.so.6"   "$RELEASE_TAG" || true
+xwau_stage_leaf "$LIB32" "libbz2.so.1.0" "$RELEASE_TAG" \
+    libbz2.so.1 libbz2.so.1.0.8 libbz2.so.1.0.6 libbz2.so.1.0.4 || true
 
 # ---------------------------------------------------------------- step 10: launcher
 log "Installing launcher (win64 standalone; no sidecar)"
