@@ -51,12 +51,12 @@ You don't need `git` — grab the release tarball and unpack it (the installer i
 a small tree of scripts, not a single file, so download the whole thing):
 
 ```bash
-curl -fL https://github.com/psoetens/xwau-linux/archive/refs/tags/v0.4.0.tar.gz | tar xz
-cd xwau-linux-0.4.0
+curl -fL https://github.com/psoetens/xwau-linux/archive/refs/tags/v0.4.1.tar.gz | tar xz
+cd xwau-linux-0.4.1
 ```
 
 That tag's scripts are pinned to download the matching prebuilt binaries, so the
-two always stay in sync. For a different version, swap `v0.4.0` for any tag on
+two always stay in sync. For a different version, swap `v0.4.1` for any tag on
 the [Releases](https://github.com/psoetens/xwau-linux/releases) page.
 
 If you *do* have `git` (e.g. to contribute or track `main`):
@@ -140,8 +140,14 @@ made at first run (kept alongside the game dir as `<game-dir>.vanilla`):
 - The Proton prefix (`compatdata/<appid>`) and the standalone wine prefix are
   **left in place** — they're reused on the next launch/install. Delete them
   yourself if you want a completely clean slate.
-- Your pilots/saves stored in the game dir are part of the mod state and are
-  reverted; back them up first if you want to keep them.
+- Your **pilots and settings are kept** — the installer preserves your pilots
+  (`UserData/XWAU/Pilot/`) and config files (`config.cfg`, effect/cockpit `.cfg`s,
+  etc.) across the restore. Only `Hooks.ini` is regenerated (it's mod-managed;
+  your resolution/preset choices come back from the recorded install options).
+- Note: a pilot kept after `--remove` stays in the XWAU location
+  (`UserData/XWAU/Pilot/`). The pilot *format* is identical to the original
+  game, but a pure-vanilla X-Wing Alliance looks for pilots in the game root —
+  copy the `.plt` there if you want to fly it without the mod.
 
 ## Upgrading (reinstall)
 
@@ -151,13 +157,16 @@ preset / resolution) recorded in `<game-dir>/.xwau-install.json` at first instal
 so you don't re-pass the ~6.6 GB `--xwau-full` / `--xwau-upd`:
 
 ```bash
-cd xwau-linux-0.4.0                        # the newer release you downloaded
+cd xwau-linux-0.4.1                        # the newer release you downloaded
 ./install-xwau-steam.sh --reinstall        # tears down the old version, installs this one
 ```
 
 - To **upgrade**: download the newer release (see [Get the installer](#get-the-installer)),
   `cd` into it, and run `--reinstall`. It cleans up the currently-installed
   version and lays down the new one — reusing the mod zips you already have.
+- **Your pilots and settings carry over** — reinstall preserves your pilots and
+  config files and re-applies the new version's required settings on top; only
+  `Hooks.ini` is regenerated.
 - Pass `--xwau-full` / `--xwau-upd` (or `--ratio` / `--preset` / `--resolution`)
   to **override** what the manifest recorded — e.g. if you moved the zip files.
 - If you first installed with a build that predates the manifest (no

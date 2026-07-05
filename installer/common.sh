@@ -410,6 +410,24 @@ xwau_create_proton_prefix() {
 xwau_remove_gamefiles() {  # $1=game
     local game="$1" van="$1.vanilla"
     [ -d "$van" ] || die "no vanilla backup at $van — nothing to restore (was this installed by us?)"
+    # Preserve USER DATA across the vanilla restore: pilots/saves + configs. The
+    # XWAU payload zips contain no .cfg/.ini, so nothing regenerates over these;
+    # on --reinstall the config overlay re-applies its keys per-key (merge).
+    # Hooks.ini is intentionally NOT preserved — it's the install marker (the
+    # payload skips if present) and is fully mod/overlay-managed, so it's
+    # regenerated. Resolution/preset/ratio/pace come back via the manifest.
+    local stash; stash="$(mktemp -d)"; local saved=0 item f base
+    for item in UserData "Pilots Backup" pilot.bak; do          # pilots / saves
+        [ -e "$game/$item" ] && { cp -a "$game/$item" "$stash/"; saved=1; }
+    done
+    shopt -s nullglob nocaseglob
+    for f in "$game"/*.cfg "$game"/*.ini "$game"/*.plt; do      # user configs + root pilots
+        base="$(basename "$f")"
+        [ "${base,,}" = "hooks.ini" ] && continue               # marker: regenerate, don't keep
+        cp -a "$f" "$stash/"; saved=1
+    done
+    shopt -u nullglob nocaseglob
+
     log "Restoring vanilla game files from $(basename "$van")"
     if command -v rsync >/dev/null 2>&1; then
         rsync -a --delete "$van/" "$game/"
@@ -417,6 +435,11 @@ xwau_remove_gamefiles() {  # $1=game
         find "$game" -mindepth 1 -delete
         cp -a "$van/." "$game/"
     fi
+    if [ "$saved" = 1 ]; then
+        cp -a "$stash/." "$game/"                               # user versions win over vanilla defaults
+        echo "    preserved your pilots + configs (Hooks.ini regenerated)"
+    fi
+    rm -rf "$stash"
     echo "    game dir restored to vanilla"
 }
 
