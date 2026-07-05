@@ -480,3 +480,25 @@ for k in ("variant","release_tag","xwau_full","xwau_upd","ratio","preset","resol
 PY
 )" || return 1
 }
+
+# ---- config.cfg preservation across (re)install --------------------------------
+# The XWAU payload rewrites config.cfg on every (re)install (its Prepare/Finalize
+# scripts), which resets user settings — pilot pointer (lastpilot), keybinds,
+# audio, graphics. We keep a persistent per-game backup of the latest config.cfg
+# and restore it AFTER the payload, so the user's settings survive. Interim
+# workaround pending an upstream fix that leaves config.cfg alone.
+XWAU_STATE="$HOME/.local/share/xwau-linux"
+_xwau_cfg_bak() {  # $1=game -> persistent backup path (per game dir)
+    printf '%s/config-%s.cfg' "$XWAU_STATE" "$(printf '%s' "$1" | sha1sum | cut -c1-16)"
+}
+xwau_backup_config() {  # $1=game — snapshot the current config.cfg (keep latest)
+    local src="$1/config.cfg" bak
+    [ -f "$src" ] || return 0
+    bak="$(_xwau_cfg_bak "$1")"; mkdir -p "$XWAU_STATE"
+    cp -a "$src" "$bak" 2>/dev/null && echo "    backed up config.cfg (kept across reinstalls)"
+}
+xwau_restore_config() {  # $1=game — restore config.cfg over whatever the payload wrote
+    local bak; bak="$(_xwau_cfg_bak "$1")"
+    [ -f "$bak" ] || return 0
+    cp -f "$bak" "$1/config.cfg" 2>/dev/null && echo "    restored your config.cfg (over the payload's)"
+}

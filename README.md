@@ -51,12 +51,12 @@ You don't need `git` — grab the release tarball and unpack it (the installer i
 a small tree of scripts, not a single file, so download the whole thing):
 
 ```bash
-curl -fL https://github.com/psoetens/xwau-linux/archive/refs/tags/v0.4.3.tar.gz | tar xz
-cd xwau-linux-0.4.3
+curl -fL https://github.com/psoetens/xwau-linux/archive/refs/tags/v0.4.4.tar.gz | tar xz
+cd xwau-linux-0.4.4
 ```
 
 That tag's scripts are pinned to download the matching prebuilt binaries, so the
-two always stay in sync. For a different version, swap `v0.4.3` for any tag on
+two always stay in sync. For a different version, swap `v0.4.4` for any tag on
 the [Releases](https://github.com/psoetens/xwau-linux/releases) page.
 
 If you *do* have `git` (e.g. to contribute or track `main`):
@@ -165,7 +165,7 @@ preset / resolution) recorded in `<game-dir>/.xwau-install.json` at first instal
 so you don't re-pass the ~6.6 GB `--xwau-full` / `--xwau-upd` arguments:
 
 ```bash
-cd xwau-linux-0.4.3                        # the newer release you downloaded
+cd xwau-linux-0.4.4                        # the newer release you downloaded
 ./install-xwau-steam.sh --reinstall        # tears down the old version, installs this one
 ```
 
@@ -199,6 +199,10 @@ cd xwau-linux-0.4.3                        # the newer release you downloaded
   codec libs with `rpm-ostree` unless the check actually flags something.
 - **The game exits immediately:** X-Wing Alliance quits if no
   joystick/controller is connected — plug one in.
+- **First launch is slow / briefly shows the desktop:** it's compiling the DXVK
+  shader cache (one time; later launches are fast). The installer already
+  silences GNOME's "not responding" popup for the duration. If the brief
+  desktop flash bothers you, launching under `gamescope` avoids it (optional).
 
 ## What's in this repo
 

@@ -29,13 +29,19 @@ ck() { if [ "$1" = "$2" ]; then echo "PASS: $3"; pass=$((pass+1)); else echo "FA
 
 GUARD='pass --no-steam-config to install'   # phrase unique to the early config guard
 
+# Pre-create a fake Proton prefix so --no-steam-config runs can't fall through to
+# real Proton prefix creation (slow). `timeout` is a hard backstop against hangs.
+mkdir -p "$TMP/steamapps/compatdata/361670/pfx/drive_c/users/steamuser"
+
 # 1) Steam running, default (config on) -> abort early with the guard message
-out="$("$REPO/install-xwau-steam.sh" --game-dir "$G" --work-dir "$TMP/work" --steam-root "$TMP/sr" 2>&1)"; rc=$?
+out="$(timeout 30 "$REPO/install-xwau-steam.sh" --game-dir "$G" --work-dir "$TMP/work" --steam-root "$TMP/sr" 2>&1)"; rc=$?
 { [ "$rc" != 0 ] && r=died; } || r=ok;                 ck "$r" died "aborts when Steam is running"
 { printf '%s' "$out" | grep -qF "$GUARD" && r=yes; } || r=no; ck "$r" yes "abort message points to --no-steam-config"
 
-# 2) --no-steam-config -> gets PAST the config guard (may stop later, but not here)
-out2="$("$REPO/install-xwau-steam.sh" --game-dir "$G" --work-dir "$TMP/work" --steam-root "$TMP/sr" --no-steam-config 2>&1)"
+# 2) --no-steam-config -> gets PAST the config guard (skips the heavy steps; must
+#    NOT print the guard phrase)
+out2="$(timeout 30 "$REPO/install-xwau-steam.sh" --game-dir "$G" --work-dir "$TMP/work" --steam-root "$TMP/sr" \
+        --no-steam-config --skip-xwau --skip-binaries --skip-configs 2>&1)"
 { printf '%s' "$out2" | grep -qF "$GUARD" && r=blocked; } || r=passed; ck "$r" passed "--no-steam-config bypasses the Steam-closed abort"
 
 echo "----"; echo "passed=$pass failed=$fail"

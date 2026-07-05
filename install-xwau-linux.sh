@@ -22,7 +22,7 @@
 #   --wine-version V   Kron4ek wine version to fetch (default: 11.11)
 #   --wine-dir PATH    use an existing wine-11 build instead of downloading Kron4ek
 #   --runtime NAME     wine-mono (default) | dotnet48
-#   --release TAG      win64 binary release to install (default v0.4.3)
+#   --release TAG      win64 binary release to install (default v0.4.4)
 #   --bin-dir PATH     local win64 binaries (optional dev override; default: download from --release)
 #   --ratio {2,3}      XWAU aspect-ratio finalize (default 2 = 16:9)
 #   --preset NAME      veryLow|Low|Medium|High|Ultra (default High; no VA ceiling on win64)
@@ -45,7 +45,7 @@ RUNTIME="wine-mono"                   # wine-mono | dotnet48
 MONO_MSI_VER="11.1.0"                 # wine-mono version (madewokherd/wine-mono)
 GE_NAME="GE-Proton10-34"              # DXVK + gstreamer-codec donor
 GE_URL="https://github.com/GloriousEggroll/proton-ge-custom/releases/download/${GE_NAME}/${GE_NAME}.tar.gz"
-RELEASE_TAG="v0.4.3"                   # win64 binaries downloaded from this release
+RELEASE_TAG="v0.4.4"                   # win64 binaries downloaded from this release
 BIN_DIR=""                            # --bin-dir = optional local-build override
 PREFIX="$HOME/.local/share/xwa-prefix-w64"
 WORK="$HOME/.cache/xwau-linux-install"
@@ -114,6 +114,10 @@ if [ -z "$GAME" ]; then
 fi
 [ -d "$GAME" ] || die "game dir not found: $GAME"
 echo "    game: $GAME"
+
+# Snapshot the user's config.cfg now (before the payload rewrites it) so we can
+# restore it at the end — keeps pilot/keybinds/settings across reinstalls.
+xwau_backup_config "$GAME"
 
 # ------------------------------------------------------- step 2a: remove / reinstall
 # --reinstall reuses the options recorded at first install; read the manifest NOW,
@@ -296,6 +300,8 @@ fi
 
 # ---------------------------------------------------------------- step 9: config
 [ "$SKIP_CONFIGS" = 1 ] || xwau_config_overlay "$GAME" "$RESOLUTION" "$CONCOURSE_PACE"
+# The XWAU payload rewrote config.cfg; put the user's saved one back.
+xwau_restore_config "$GAME"
 
 # ---------------------------------------------------------------- step 9b: 32-bit codec libs
 # GE's 32-bit HD .mp4 cutscene decoder needs two 32-bit "soname-trap" leaves GE
@@ -333,9 +339,20 @@ export GST_PLUGIN_PATH="\$GST_PLUGIN_SYSTEM_PATH_1_0"
 export LD_LIBRARY_PATH="\$GAME/.linux-lib32:\$GE/lib/i386-linux-gnu:\${LD_LIBRARY_PATH:-}"
 cd "\$GAME" || exit 1
 export WINEDEBUG=-all
+# Silence GNOME's "not responding — Wait / Force Quit" dialog while the game runs
+# (first-launch DXVK shader compile briefly hangs the window). Restore after. No-op
+# off GNOME / without gsettings.
+_ca_restore() { :; }
+if command -v gsettings >/dev/null 2>&1 && gsettings get org.gnome.mutter check-alive-timeout >/dev/null 2>&1; then
+    _ca_old="\$(gsettings get org.gnome.mutter check-alive-timeout 2>/dev/null)"
+    gsettings set org.gnome.mutter check-alive-timeout 0 2>/dev/null \
+        && _ca_restore() { gsettings set org.gnome.mutter check-alive-timeout "\$_ca_old" 2>/dev/null || true; }
+fi
+trap _ca_restore EXIT INT TERM
 "\$WINE_DIR/bin/wine" "\$GAME/xwingalliance.exe" > "\$HOME/xwa-linux.log" 2>&1
 RC=\$?
 "\$WINE_DIR/bin/wineserver" -k 2>/dev/null
+_ca_restore
 exit \$RC
 LAUNCHEOF
 chmod +x "$LAUNCHER"

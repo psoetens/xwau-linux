@@ -17,7 +17,7 @@
 # Options:
 #   --game-dir PATH   game dir (default: auto-detect Steam)
 #   --work-dir PATH   scratch dir (default: ~/.cache/xwau-linux-install)
-#   --release TAG     win64 binary release to install (default v0.4.3)
+#   --release TAG     win64 binary release to install (default v0.4.4)
 #   --bin-dir PATH    local win64 binaries (optional dev override; default: download from --release)
 #   --ratio {2,3}     XWAU aspect-ratio finalize (default 2 = 16:9)
 #   --preset NAME     veryLow|Low|Medium|High|Ultra (default High)
@@ -45,7 +45,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 WORK="$HOME/.cache/xwau-linux-install"
 STEAM_ROOT="$HOME/.local/share/Steam"
 COMPAT_DIR="$STEAM_ROOT/compatibilitytools.d"
-RELEASE_TAG="v0.4.3"          # win64 binaries are downloaded from this release
+WRAP="$HOME/.local/share/xwau-linux/xwa-steam-run.sh"   # host launch wrapper (silences GNOME not-responding dialog during shader compile)
+RELEASE_TAG="v0.4.4"          # win64 binaries are downloaded from this release
 APPID=361670
 PROTON_TOKEN="proton_11"      # Steam compat-tool id for Proton 11 (override: --proton-token)
 DO_STEAM_CONFIG=1             # auto-set compat tool + launch options (needs Steam closed)
@@ -91,9 +92,11 @@ if [ "$DO_STEAM_CONFIG" = 1 ] && pgrep -x steam >/dev/null 2>&1; then
 fi
 
 # Steam Launch Options the installer sets/prints. WINEDLLOVERRIDES makes the
-# game-dir ddraw/dinput hooks load. (We do NOT wrap %command% — intercepting it
-# breaks the Proton launch; the first-launch shader wait is explained in text below.)
-LAUNCH_OPTS="WINEDLLOVERRIDES=\"ddraw=n,b;dinput=n,b;dinput8=n,b;windowscodecs=b\" %command%"
+# game-dir ddraw/dinput hooks load. The xwa-steam-run.sh prefix runs on the host
+# (outside the Proton container) and silences GNOME's "not responding" dialog for
+# the duration of the game — first-launch DXVK shader compile briefly hangs the
+# window. (We do NOT wrap %command% itself; the prefix just brackets it.)
+LAUNCH_OPTS="WINEDLLOVERRIDES=\"ddraw=n,b;dinput=n,b;dinput8=n,b;windowscodecs=b\" \"$WRAP\" %command%"
 
 print_manual_steam_steps() {
     cat <<EOF
@@ -107,7 +110,17 @@ print_manual_steam_steps() {
 EOF
 }
 
+ensure_wrap() {  # install the host launch wrapper that LAUNCH_OPTS points at
+    mkdir -p "$(dirname "$WRAP")"
+    if cp -f "$SCRIPT_DIR/installer/xwa-steam-run.sh" "$WRAP" 2>/dev/null; then
+        chmod +x "$WRAP"
+    else
+        warn "couldn't install launch wrapper at $WRAP — GNOME's not-responding dialog won't be auto-silenced"
+    fi
+}
+
 configure_steam() {
+    ensure_wrap
     if [ "$DO_STEAM_CONFIG" != 1 ]; then
         log "Steam config (manual — --no-steam-config)"; print_manual_steam_steps; return 0
     fi
@@ -144,6 +157,10 @@ echo "    game: $GAME"
 STEAMAPPS="$(cd "$GAME/../.." && pwd)"          # .../steamapps
 COMPATDATA="$STEAMAPPS/compatdata/361670"
 PFX="$COMPATDATA/pfx"
+
+# Snapshot the user's config.cfg now (before the payload rewrites it) so we can
+# restore it at the end — keeps pilot/keybinds/settings across reinstalls.
+xwau_backup_config "$GAME"
 
 # ---------------------------------------------------------------- step 2b: remove / reinstall
 # --reinstall reuses the options recorded at first install; read the manifest NOW,
@@ -258,6 +275,8 @@ xwau_vanilla_backup "$GAME"
 
 # ---------------------------------------------------------------- step 8: config
 [ "$SKIP_CONFIGS" = 1 ] || xwau_config_overlay "$GAME" "$RESOLUTION" "$CONCOURSE_PACE"
+# The XWAU payload rewrote config.cfg; put the user's saved one back.
+xwau_restore_config "$GAME"
 
 # ---------------------------------------------------------------- step 9: configure Steam
 configure_steam
