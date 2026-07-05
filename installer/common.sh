@@ -107,7 +107,11 @@ xwau_install_binaries() {
         ( cd "$bin_dir"
           local f
           for f in $XWAU_BIN_FILES SHA256SUMS.txt; do
-              [ -f "$f" ] || curl -L -o "$f" "$XWAU_RELEASE_BASE/$release_tag/$f"
+              [ -f "$f" ] && continue
+              # -f: fail on HTTP errors (else a 404 body like "Not Found" gets saved
+              # as the file and poisons this cache dir for every later run). Drop any
+              # partial/empty file on failure so nothing bad is left behind.
+              curl -fL -o "$f" "$XWAU_RELEASE_BASE/$release_tag/$f" || { rm -f "$f"; exit 1; }
           done
           sha256sum -c SHA256SUMS.txt
         ) || die "win64 binary download/checksum failed (release $release_tag)"

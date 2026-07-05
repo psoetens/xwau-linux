@@ -7,17 +7,22 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 REPO="$(cd "$HERE/.." && pwd)"
 TMP="$(mktemp -d)"
 FAKE=""
-cleanup() { [ -n "$FAKE" ] && kill "$FAKE" 2>/dev/null; rm -rf "$TMP"; }
+cleanup() { [ -n "$FAKE" ] && { kill "$FAKE" 2>/dev/null; pkill -P "$FAKE" 2>/dev/null; }; rm -rf "$TMP"; }
 trap cleanup EXIT
 mkdir -p "$TMP/steamapps/common/game" "$TMP/work"
 echo x > "$TMP/steamapps/common/game/xwingalliance.exe"
 G="$TMP/steamapps/common/game"
 
-# fake "steam" process: comm must be exactly "steam" for `pgrep -x steam`
-cp "$(command -v sleep)" "$TMP/steam"
-"$TMP/steam" 120 & FAKE=$!
-# give it a moment to show up in the process table
-for _ in 1 2 3 4 5 6 7 8 9 10; do pgrep -x steam >/dev/null 2>&1 && break; done
+# fake "steam" process so `pgrep -x steam` matches (comm must be exactly "steam").
+# Use a copy of bash — coreutils tools (sleep/cat/...) are a multicall binary that
+# refuse to run under an unknown argv[0], so they can't masquerade as "steam".
+cp "$(command -v bash)" "$TMP/steam"
+# compound command ('...; :') so bash does NOT exec-optimize into `sleep`
+# (which would leave comm=sleep, not steam, and pgrep -x steam wouldn't match).
+"$TMP/steam" -c 'sleep 300; :' & FAKE=$!
+# wait until it's visible to pgrep (else the whole test is meaningless)
+for _ in $(seq 1 50); do pgrep -x steam >/dev/null 2>&1 && break; sleep 0.1; done
+pgrep -x steam >/dev/null 2>&1 || { echo "SETUP FAIL: could not start a fake 'steam' process"; exit 1; }
 
 pass=0; fail=0
 ck() { if [ "$1" = "$2" ]; then echo "PASS: $3"; pass=$((pass+1)); else echo "FAIL: $3 (got '$1' want '$2')"; fail=$((fail+1)); fi; }
