@@ -113,7 +113,7 @@ cd ~/Downloads/app
 
 ### Purchase and Download the game
 
-In you steam library purchase and **download** the original 'STAR WARS: X-Wing Alliance' game.
+In your steam library purchase and **download** the original 'STAR WARS: X-Wing Alliance' game.
 
 **Then close Steam.**
 
