@@ -105,6 +105,23 @@ def ensure_compat_mapping(text, appid, token):
     return text[:cm_close] + child + text[cm_close:]
 
 
+def remove_compat_mapping(text, appid):
+    """Remove the CompatToolMapping/<appid> block entirely. Returns (text, changed)."""
+    cm = find_block(text, 'CompatToolMapping')
+    if not cm:
+        return text, False
+    _, cm_open, cm_close = cm
+    blk = find_block(text, appid, cm_open + 1, cm_close)
+    if not blk:
+        return text, False                       # not mapped -> already "fresh"
+    kstart, _b_open, b_close = blk
+    line_start = text.rfind('\n', 0, kstart) + 1  # include the key's leading indent
+    end = b_close + 1
+    if end < len(text) and text[end] == '\n':     # and the trailing newline
+        end += 1
+    return text[:line_start] + text[end:], True
+
+
 def set_launch_options(text, appid, value):
     """Find the apps/<appid> block and set its LaunchOptions. Returns (text, changed)."""
     pos = 0
@@ -174,15 +191,24 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--steam-root', required=True)
     ap.add_argument('--appid', required=True)
-    ap.add_argument('--token', required=True)
-    ap.add_argument('--launch-options', required=True)
+    ap.add_argument('--token')
+    ap.add_argument('--launch-options')
+    ap.add_argument('--remove', action='store_true',
+                    help='remove the compat-tool mapping and clear launch options')
     a = ap.parse_args()
+    if not a.remove and (a.token is None or a.launch_options is None):
+        ap.error('--token and --launch-options are required unless --remove is given')
+
+    # --remove: drop the CompatToolMapping block; else set the name to the token.
+    compat_transform = ((lambda t: remove_compat_mapping(t, a.appid)) if a.remove
+                        else (lambda t: (ensure_compat_mapping(t, a.appid, a.token), True)))
+    # --remove: blank the launch options; else set them.
+    lo_value = '' if a.remove else a.launch_options
 
     did = 0
     config_vdf = os.path.join(a.steam_root, 'config', 'config.vdf')
     if os.path.exists(config_vdf):
-        if edit_file(config_vdf,
-                     lambda t: (ensure_compat_mapping(t, a.appid, a.token), True)):
+        if edit_file(config_vdf, compat_transform, require_change=not a.remove):
             did += 1
     else:
         print('  WARN: %s not found' % config_vdf)
@@ -190,11 +216,11 @@ def main():
     locals_ = glob.glob(os.path.join(a.steam_root, 'userdata', '*', 'config', 'localconfig.vdf'))
     touched_lc = False
     for lc in locals_:
-        if edit_file(lc, lambda t: set_launch_options(t, a.appid, a.launch_options),
+        if edit_file(lc, lambda t: set_launch_options(t, a.appid, lo_value),
                      require_change=False):
             touched_lc = True
             did += 1
-    if not touched_lc:
+    if not touched_lc and not a.remove:
         print('  WARN: no localconfig.vdf had an apps/%s block (launch options not set)' % a.appid)
 
     print('  steam_config: %d file(s) updated' % did)

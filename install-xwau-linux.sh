@@ -22,7 +22,7 @@
 #   --wine-version V   Kron4ek wine version to fetch (default: 11.11)
 #   --wine-dir PATH    use an existing wine-11 build instead of downloading Kron4ek
 #   --runtime NAME     wine-mono (default) | dotnet48
-#   --release TAG      win64 binary release to install (default v0.2.0)
+#   --release TAG      win64 binary release to install (default v0.4.0)
 #   --bin-dir PATH     local win64 binaries (optional dev override; default: download from --release)
 #   --ratio {2,3}      XWAU aspect-ratio finalize (default 2 = 16:9)
 #   --preset NAME      veryLow|Low|Medium|High|Ultra (default High; no VA ceiling on win64)
@@ -30,6 +30,9 @@
 #   --skip-prefix --skip-xwau --skip-binaries --skip-configs   resume helpers
 #   --skip-codec-check     don't abort when the host lacks the 32-bit HD-cutscene
 #                          libs (install anyway; cutscenes play audio-only)
+#   --remove          restore the original (vanilla) game, then exit
+#   --reinstall       --remove, then reinstall using THIS dir's version; reuses the XWAU
+#                     zip paths recorded at first install (pass --xwau-full/--xwau-upd to override)
 
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -42,14 +45,15 @@ RUNTIME="wine-mono"                   # wine-mono | dotnet48
 MONO_MSI_VER="11.1.0"                 # wine-mono version (madewokherd/wine-mono)
 GE_NAME="GE-Proton10-34"              # DXVK + gstreamer-codec donor
 GE_URL="https://github.com/GloriousEggroll/proton-ge-custom/releases/download/${GE_NAME}/${GE_NAME}.tar.gz"
-RELEASE_TAG="v0.3.0"                   # win64 binaries downloaded from this release
+RELEASE_TAG="v0.4.0"                   # win64 binaries downloaded from this release
 BIN_DIR=""                            # --bin-dir = optional local-build override
 PREFIX="$HOME/.local/share/xwa-prefix-w64"
 WORK="$HOME/.cache/xwau-linux-install"
 COMPAT_DIR="$HOME/.local/share/Steam/compatibilitytools.d"
 GAME="" XWAU_FULL="" XWAU_UPD=""
-RATIO="2" PRESET="High" RESOLUTION="" CONCOURSE_PACE=""
+RATIO="" PRESET="" RESOLUTION="" CONCOURSE_PACE=""   # empty = default (or manifest, on --reinstall)
 SKIP_PREFIX=0 SKIP_XWAU=0 SKIP_BINARIES=0 SKIP_CONFIGS=0 SKIP_CODEC_CHECK=0
+REMOVE=0 REINSTALL=0
 
 while [ $# -gt 0 ]; do
     case "$1" in
@@ -72,7 +76,9 @@ while [ $# -gt 0 ]; do
         --skip-binaries) SKIP_BINARIES=1; shift ;;
         --skip-configs) SKIP_CONFIGS=1; shift ;;
         --skip-codec-check) SKIP_CODEC_CHECK=1; shift ;;
-        -h|--help) sed -n '2,30p' "$0"; exit 0 ;;
+        --remove) REMOVE=1; shift ;;
+        --reinstall) REINSTALL=1; shift ;;
+        -h|--help) sed -n '2,35p' "$0"; exit 0 ;;
         *) echo "unknown option: $1 (see --help)"; exit 2 ;;
     esac
 done
@@ -84,7 +90,8 @@ case "$RUNTIME" in wine-mono|dotnet48) ;; *) die "bad --runtime: $RUNTIME" ;; es
 if [ -n "$GAME" ]     && [ ! -d "$GAME" ];              then die "--game-dir not found: $GAME"; fi
 if [ -n "$WINE_DIR" ] && [ ! -x "$WINE_DIR/bin/wine" ]; then die "--wine-dir has no bin/wine executable: $WINE_DIR"; fi
 if [ -n "$BIN_DIR" ]  && [ ! -d "$BIN_DIR" ];           then die "--bin-dir not found: $BIN_DIR"; fi
-if [ "$SKIP_XWAU" != 1 ]; then
+# --remove needs no zips; --reinstall gets them from the manifest (checked later).
+if [ "$SKIP_XWAU" != 1 ] && [ "$REMOVE" != 1 ] && [ "$REINSTALL" != 1 ]; then
     [ -n "$XWAU_FULL" ] || die "--xwau-full is required (or pass --skip-xwau) — download the XWAU 2025 zips from https://www.xwaupgrade.com/"
     [ -n "$XWAU_UPD" ]  || die "--xwau-upd is required (or pass --skip-xwau)"
     [ -f "$XWAU_FULL" ] || die "--xwau-full not found: $XWAU_FULL"
@@ -107,6 +114,39 @@ if [ -z "$GAME" ]; then
 fi
 [ -d "$GAME" ] || die "game dir not found: $GAME"
 echo "    game: $GAME"
+
+# ------------------------------------------------------- step 2a: remove / reinstall
+# --reinstall reuses the options recorded at first install; read the manifest NOW,
+# before the remove wipes it. Explicit CLI args override the manifest.
+if [ "$REINSTALL" = 1 ]; then
+    if xwau_load_manifest "$GAME"; then
+        [ -n "$XWAU_FULL" ]      || XWAU_FULL="$MF_XWAU_FULL"
+        [ -n "$XWAU_UPD" ]       || XWAU_UPD="$MF_XWAU_UPD"
+        [ -n "$RATIO" ]          || RATIO="$MF_RATIO"
+        [ -n "$PRESET" ]         || PRESET="$MF_PRESET"
+        [ -n "$RESOLUTION" ]     || RESOLUTION="$MF_RESOLUTION"
+        [ -n "$CONCOURSE_PACE" ] || CONCOURSE_PACE="$MF_CONCOURSE_PACE"
+        echo "    reusing manifest (previously installed release: ${MF_RELEASE_TAG:-?})"
+    else
+        warn "no install manifest at $GAME/.xwau-install.json — pass --xwau-full/--xwau-upd"
+    fi
+    if [ "$SKIP_XWAU" != 1 ]; then
+        [ -n "$XWAU_FULL" ] && [ -f "$XWAU_FULL" ] || die "reinstall: XWAU Full zip not found: ${XWAU_FULL:-<unset>} (pass --xwau-full)"
+        [ -n "$XWAU_UPD" ]  && [ -f "$XWAU_UPD" ]  || die "reinstall: XWAU UPD zip not found: ${XWAU_UPD:-<unset>} (pass --xwau-upd)"
+    fi
+fi
+if [ "$REMOVE" = 1 ] || [ "$REINSTALL" = 1 ]; then
+    log "Removing XWAU install (restoring vanilla game files)"
+    xwau_remove_gamefiles "$GAME"
+    if [ "$REMOVE" = 1 ]; then
+        log "Removed — X-Wing Alliance is back to the original (vanilla) version."
+        echo "    (wine prefix at $PREFIX left in place; delete it to fully reset.)"
+        exit 0
+    fi
+    log "Reinstalling from this directory (release $RELEASE_TAG)"
+fi
+# hard defaults for anything not set by an arg or the manifest
+RATIO="${RATIO:-2}"; PRESET="${PRESET:-High}"
 
 # ------------------------------------------------------- step 2b: codec preflight (fail early)
 # Verify the host has the 32-bit userland GE's HD-cutscene codecs need BEFORE the
@@ -321,6 +361,14 @@ if [ "$_vid_missing" = 1 ]; then
 else
     echo "    video codec deps OK (mp4/h264/aac)"
 fi
+
+# install manifest (for --reinstall)
+_MF_FULL="$XWAU_FULL"; [ -n "$_MF_FULL" ] && _MF_FULL="$(readlink -f "$_MF_FULL" 2>/dev/null || echo "$_MF_FULL")"
+_MF_UPD="$XWAU_UPD";   [ -n "$_MF_UPD" ]  && _MF_UPD="$(readlink -f "$_MF_UPD" 2>/dev/null || echo "$_MF_UPD")"
+xwau_write_manifest "$GAME" variant=standalone release_tag="$RELEASE_TAG" \
+    xwau_full="$_MF_FULL" xwau_upd="$_MF_UPD" ratio="$RATIO" preset="$PRESET" \
+    resolution="$RESOLUTION" concourse_pace="$CONCOURSE_PACE" \
+    installed_at="$(date -u +%FT%TZ 2>/dev/null || echo unknown)"
 
 log "Install complete (standalone: Kron4ek wine-$WINE_VERSION + $RUNTIME)"
 cat <<EOF

@@ -70,8 +70,22 @@ xwau_payload_replay() {
     unzip -o -q "$upd"  -d "$work/payloads/upd"
     log "Installing XWAU 2025 (payload replay; ratio=$ratio preset=$preset)"
     mkdir -p "$userprofile"
-    python3 "$script_dir/installer/xwau_payload_install.py" "$game" "$userprofile" \
-        "$work/payloads" --ratio "$ratio" --preset "$preset"
+    if python3 "$script_dir/installer/xwau_payload_install.py" "$game" "$userprofile" \
+            "$work/payloads" --ratio "$ratio" --preset "$preset"; then
+        # Success: the payload now lives in the game dir, so the extracted scratch
+        # (a full second ~6.6G copy) is pure transience — drop it. Set
+        # XWAU_KEEP_PAYLOADS=1 to keep it (avoids re-unzipping when iterating).
+        if [ -n "${XWAU_KEEP_PAYLOADS:-}" ]; then
+            echo "    kept scratch payloads (XWAU_KEEP_PAYLOADS set): $work/payloads"
+        else
+            rm -rf "$work/payloads"
+            echo "    cleaned up scratch payloads: $work/payloads"
+        fi
+    else
+        local rc=$?
+        warn "payload install failed (rc=$rc) — keeping $work/payloads for debugging"
+        return "$rc"
+    fi
 }
 
 # ---- win64 binary overlay (force-shim ddraw, native hook_patcher, CLR-hosting shims) ----
@@ -342,4 +356,100 @@ xwau_stage_leaf() {  # $1=lib32dir $2=wanted-soname $3=release_tag [compat basen
     rm -f "$lib32/$want"
     warn "no 32-bit source for $want found locally and none in release $tag — HD cutscenes may be black; drop $want in $lib32/ or upload it to the release"
     return 1
+}
+
+# ---- Steam: create the Proton prefix without a manual game launch ------------
+# Steam normally builds compatdata/<appid>/pfx on first game launch. We do the
+# same thing standalone (Steam MUST be closed) by invoking the chosen Proton
+# through the Steam Linux Runtime (sniper) entry-point with the compat env Steam
+# would set, running wineboot. Best-effort: prints a warning and returns non-zero
+# on any failure so the caller can fall back to the manual "launch once" steps.
+
+# Locate SteamLinuxRuntime_sniper/_v2-entry-point. It lives in the *main* Steam
+# library, which may differ from the game's library — so check the steam root and
+# the game's library first, then any path in libraryfolders.vdf. Prints the path.
+xwau_find_slr() {  # $1=steam_root  $2=game_steamapps
+    local d p lf
+    for d in "$1/steamapps/common/SteamLinuxRuntime_sniper/_v2-entry-point" \
+             "$2/common/SteamLinuxRuntime_sniper/_v2-entry-point"; do
+        [ -x "$d" ] && { echo "$d"; return 0; }
+    done
+    lf="$1/steamapps/libraryfolders.vdf"
+    if [ -f "$lf" ]; then
+        while IFS= read -r p; do
+            d="$p/steamapps/common/SteamLinuxRuntime_sniper/_v2-entry-point"
+            [ -x "$d" ] && { echo "$d"; return 0; }
+        done < <(grep -oE '"path"[[:space:]]+"[^"]+"' "$lf" | sed -E 's/.*"([^"]+)"$/\1/')
+    fi
+    return 1
+}
+
+# Create the prefix. $1=proton_dir $2=compatdata_dir $3=steam_root $4=slr_entry
+xwau_create_proton_prefix() {
+    local proton_dir="$1" compatdata="$2" steam_root="$3" slr="$4"
+    local proton="$proton_dir/proton"
+    [ -f "$proton" ] || { warn "no 'proton' script in $proton_dir"; return 1; }
+    [ -x "$slr" ]    || { warn "Steam Linux Runtime (sniper) entry-point not usable: $slr"; return 1; }
+    mkdir -p "$compatdata"
+    log "Creating Proton prefix with $(basename "$proton_dir") (no game launch needed)"
+    STEAM_COMPAT_DATA_PATH="$compatdata" \
+    STEAM_COMPAT_CLIENT_INSTALL_PATH="$steam_root" \
+    timeout 300 "$slr" --verb=waitforexitandrun -- \
+        "$proton" waitforexitandrun wineboot >/dev/null 2>&1
+    local rc=$?
+    [ "$rc" = 0 ] || { warn "prefix creation via Proton exited rc=$rc"; return 1; }
+    [ -d "$compatdata/pfx/drive_c" ] || { warn "prefix not created (no pfx/drive_c)"; return 1; }
+    return 0
+}
+
+# ---- remove / reinstall support ---------------------------------------------
+# Restore the game dir to the pristine snapshot the installer took at first run.
+# This removes ALL our changes that live in the game dir (payload, replaced DLLs,
+# the manifest, and the standalone launcher + .linux-lib32) in one shot. The
+# .vanilla dir is a SIBLING of the game dir, so it is never touched by the sync.
+xwau_remove_gamefiles() {  # $1=game
+    local game="$1" van="$1.vanilla"
+    [ -d "$van" ] || die "no vanilla backup at $van — nothing to restore (was this installed by us?)"
+    log "Restoring vanilla game files from $(basename "$van")"
+    if command -v rsync >/dev/null 2>&1; then
+        rsync -a --delete "$van/" "$game/"
+    else
+        find "$game" -mindepth 1 -delete
+        cp -a "$van/." "$game/"
+    fi
+    echo "    game dir restored to vanilla"
+}
+
+# Record what was installed so --reinstall can replay it without re-passing the
+# big XWAU zips. Lives in the game dir (wiped by --remove; --reinstall reads it
+# into memory BEFORE removing). Args after $1 are key=value pairs.
+xwau_write_manifest() {  # $1=game  key=value...
+    local game="$1"; shift
+    python3 - "$game/.xwau-install.json" "$@" <<'PY'
+import sys, json
+mf = sys.argv[1]
+d = {"schema": 1}
+for kv in sys.argv[2:]:
+    k, _, v = kv.partition('=')
+    d[k] = v
+with open(mf, 'w') as f:
+    json.dump(d, f, indent=2); f.write('\n')
+PY
+    echo "    wrote install manifest: $game/.xwau-install.json"
+}
+
+# Load the manifest into MF_* shell vars (safely shell-quoted). Returns 1 if none.
+xwau_load_manifest() {  # $1=game
+    local mf="$1/.xwau-install.json"
+    [ -f "$mf" ] || return 1
+    eval "$(python3 - "$mf" <<'PY'
+import sys, json, shlex
+try:
+    d = json.load(open(sys.argv[1]))
+except Exception:
+    sys.exit(1)
+for k in ("variant","release_tag","xwau_full","xwau_upd","ratio","preset","resolution","concourse_pace","appid"):
+    print("MF_%s=%s" % (k.upper(), shlex.quote(str(d.get(k, "")))))
+PY
+)" || return 1
 }

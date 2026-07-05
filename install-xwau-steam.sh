@@ -17,7 +17,7 @@
 # Options:
 #   --game-dir PATH   game dir (default: auto-detect Steam)
 #   --work-dir PATH   scratch dir (default: ~/.cache/xwau-linux-install)
-#   --release TAG     win64 binary release to install (default v0.2.0)
+#   --release TAG     win64 binary release to install (default v0.4.0)
 #   --bin-dir PATH    local win64 binaries (optional dev override; default: download from --release)
 #   --ratio {2,3}     XWAU aspect-ratio finalize (default 2 = 16:9)
 #   --preset NAME     veryLow|Low|Medium|High|Ultra (default High)
@@ -27,6 +27,9 @@
 #                        (use this after closing Steam, if it was running during install)
 #   --proton-token NAME  Steam compat-tool id to set (default proton_11)
 #   --skip-xwau --skip-binaries --skip-configs   resume helpers
+#   --remove          restore the original (vanilla) game + clear our Steam config, then exit
+#   --reinstall       --remove, then reinstall using THIS dir's version; reuses the XWAU
+#                     zip paths recorded at first install (pass --xwau-full/--xwau-upd to override)
 #
 # The installer sets the Proton compat tool + Launch Options for you (Steam must be
 # CLOSED for that; if it's running it tells you to re-run with --steam-config-only).
@@ -40,14 +43,15 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 WORK="$HOME/.cache/xwau-linux-install"
 STEAM_ROOT="$HOME/.local/share/Steam"
 COMPAT_DIR="$STEAM_ROOT/compatibilitytools.d"
-RELEASE_TAG="v0.3.0"          # win64 binaries are downloaded from this release
+RELEASE_TAG="v0.4.0"          # win64 binaries are downloaded from this release
 APPID=361670
 PROTON_TOKEN="proton_11"      # Steam compat-tool id for Proton 11 (override: --proton-token)
 DO_STEAM_CONFIG=1             # auto-set compat tool + launch options (needs Steam closed)
 STEAM_CONFIG_ONLY=0          # --steam-config-only: just (re)apply the Steam config + wrapper
 GAME="" XWAU_FULL="" XWAU_UPD="" BIN_DIR=""   # --bin-dir = optional local-build override
-RATIO="2" PRESET="High" RESOLUTION="" CONCOURSE_PACE=""
+RATIO="" PRESET="" RESOLUTION="" CONCOURSE_PACE=""   # empty = default (or manifest, on --reinstall)
 SKIP_XWAU=0 SKIP_BINARIES=0 SKIP_CONFIGS=0
+REMOVE=0 REINSTALL=0
 
 while [ $# -gt 0 ]; do
     case "$1" in
@@ -68,7 +72,9 @@ while [ $# -gt 0 ]; do
         --skip-xwau) SKIP_XWAU=1; shift ;;
         --skip-binaries) SKIP_BINARIES=1; shift ;;
         --skip-configs) SKIP_CONFIGS=1; shift ;;
-        -h|--help) sed -n '2,33p' "$0"; exit 0 ;;
+        --remove) REMOVE=1; shift ;;
+        --reinstall) REINSTALL=1; shift ;;
+        -h|--help) sed -n '2,36p' "$0"; exit 0 ;;
         *) echo "unknown option: $1 (see --help)"; exit 2 ;;
     esac
 done
@@ -134,14 +140,53 @@ STEAMAPPS="$(cd "$GAME/../.." && pwd)"          # .../steamapps
 COMPATDATA="$STEAMAPPS/compatdata/361670"
 PFX="$COMPATDATA/pfx"
 
+# ---------------------------------------------------------------- step 2b: remove / reinstall
+# --reinstall reuses the options recorded at first install; read the manifest NOW,
+# before the remove wipes it. Explicit CLI args override the manifest.
+if [ "$REINSTALL" = 1 ]; then
+    if xwau_load_manifest "$GAME"; then
+        [ -n "$XWAU_FULL" ]      || XWAU_FULL="$MF_XWAU_FULL"
+        [ -n "$XWAU_UPD" ]       || XWAU_UPD="$MF_XWAU_UPD"
+        [ -n "$RATIO" ]          || RATIO="$MF_RATIO"
+        [ -n "$PRESET" ]         || PRESET="$MF_PRESET"
+        [ -n "$RESOLUTION" ]     || RESOLUTION="$MF_RESOLUTION"
+        [ -n "$CONCOURSE_PACE" ] || CONCOURSE_PACE="$MF_CONCOURSE_PACE"
+        echo "    reusing manifest (previously installed release: ${MF_RELEASE_TAG:-?})"
+    else
+        warn "no install manifest at $GAME/.xwau-install.json — pass --xwau-full/--xwau-upd"
+    fi
+    if [ "$SKIP_XWAU" != 1 ]; then
+        [ -n "$XWAU_FULL" ] && [ -f "$XWAU_FULL" ] || die "reinstall: XWAU Full zip not found: ${XWAU_FULL:-<unset>} (pass --xwau-full)"
+        [ -n "$XWAU_UPD" ]  && [ -f "$XWAU_UPD" ]  || die "reinstall: XWAU UPD zip not found: ${XWAU_UPD:-<unset>} (pass --xwau-upd)"
+    fi
+fi
+if [ "$REMOVE" = 1 ] || [ "$REINSTALL" = 1 ]; then
+    pgrep -x steam >/dev/null 2>&1 && die "Steam is running — close Steam completely, then re-run (need Steam closed to edit its config)."
+    log "Removing XWAU install (restore vanilla + clear Steam config)"
+    xwau_remove_gamefiles "$GAME"
+    if python3 "$SCRIPT_DIR/installer/steam_config.py" --remove --steam-root "$STEAM_ROOT" --appid "$APPID"; then
+        echo "    cleared Steam compat tool + launch options"
+    else
+        warn "couldn't clear Steam config automatically (edit manually if needed)"
+    fi
+    if [ "$REMOVE" = 1 ]; then
+        log "Removed — X-Wing Alliance is back to the original (vanilla) version."
+        echo "    (Proton prefix left in place; delete $COMPATDATA to fully reset it.)"
+        exit 0
+    fi
+    log "Reinstalling from this directory (release $RELEASE_TAG)"
+fi
+# hard defaults for anything not set by an arg or the manifest
+RATIO="${RATIO:-2}"; PRESET="${PRESET:-High}"
+
 # ---------------------------------------------------------------- step 3: Proton >= 11 check
 log "Checking for Proton (>= wine-11)"
-PROTON_OK=""
+PROTON_OK=""; PROTON_DIR=""
 for p in "Proton Hotfix" "Proton Experimental" "$STEAMAPPS"/common/Proton\ 1[1-9]* ; do
     pdir="$STEAMAPPS/common/$p"; [ -d "$pdir" ] || pdir="$p"
     [ -d "$pdir" ] || continue
     pv="$("$pdir/files/bin/wine" --version 2>/dev/null || echo "")"
-    case "$pv" in wine-1[1-9]*|wine-[2-9][0-9]*) PROTON_OK="$(basename "$pdir") ($pv)"; break ;; esac
+    case "$pv" in wine-1[1-9]*|wine-[2-9][0-9]*) PROTON_OK="$(basename "$pdir") ($pv)"; PROTON_DIR="$pdir"; break ;; esac
 done
 if [ -n "$PROTON_OK" ]; then
     echo "    found Proton >= 11: $PROTON_OK"
@@ -152,10 +197,16 @@ else
 fi
 
 # ---------------------------------------------------------------- step 4: Proton prefix (for the payload's %UserProfile%)
-if [ ! -d "$PFX/drive_c" ]; then
+# The payload writes to the prefix's user profile ($PFX/drive_c/users/steamuser),
+# so the prefix must exist. Steam builds it on first game launch — but we can do
+# the same thing here (Steam closed) by driving Proton through the Steam Linux
+# Runtime, so a first-time install needs no manual "launch once + re-run". This is
+# best-effort: if anything about the standalone Proton invocation fails, we fall
+# back to the manual steps rather than leaving a half-made prefix.
+print_manual_prefix_steps() {
     cat <<EOF
 
-  The Proton prefix for X-Wing Alliance doesn't exist yet. Create it first:
+  Create the Proton prefix first (manual fallback):
     1. In Steam: X-Wing Alliance -> Properties -> Compatibility ->
        "Force the use of a specific Steam Play compatibility tool" -> Proton Hotfix
        (or Proton Experimental).
@@ -163,10 +214,24 @@ if [ ! -d "$PFX/drive_c" ]; then
        just show a black screen / close — that's fine; we configure it next).
     3. Re-run this installer.
 
-  (Why: the XWAU payload writes some files to the prefix's user profile at
-   $PFX/drive_c/users/steamuser.)
+  (Why: the XWAU payload writes files to $PFX/drive_c/users/steamuser.)
 EOF
-    die "Proton prefix not found at $PFX — see the steps above"
+}
+if [ ! -d "$PFX/drive_c" ]; then
+    if pgrep -x steam >/dev/null 2>&1; then
+        warn "Steam is running — close Steam completely, then re-run so the prefix can be created."
+        print_manual_prefix_steps
+        die "Proton prefix not found at $PFX (Steam must be closed to create it)"
+    fi
+    SLR_ENTRY="$(xwau_find_slr "$STEAM_ROOT" "$STEAMAPPS" || true)"
+    if [ -n "$PROTON_DIR" ] && [ -n "$SLR_ENTRY" ] \
+       && xwau_create_proton_prefix "$PROTON_DIR" "$COMPATDATA" "$STEAM_ROOT" "$SLR_ENTRY"; then
+        echo "    created prefix: $PFX"
+    else
+        warn "couldn't auto-create the Proton prefix (need Proton >= 11 + SteamLinuxRuntime_sniper)."
+        print_manual_prefix_steps
+        die "Proton prefix not found at $PFX — see the steps above"
+    fi
 fi
 USERPROFILE="$PFX/drive_c/users/steamuser"
 [ -d "$USERPROFILE" ] || USERPROFILE="$PFX/drive_c/users/$USER"
@@ -187,6 +252,14 @@ xwau_vanilla_backup "$GAME"
 
 # ---------------------------------------------------------------- step 9: configure Steam
 configure_steam
+
+# ---------------------------------------------------------------- step 10: install manifest (for --reinstall)
+_MF_FULL="$XWAU_FULL"; [ -n "$_MF_FULL" ] && _MF_FULL="$(readlink -f "$_MF_FULL" 2>/dev/null || echo "$_MF_FULL")"
+_MF_UPD="$XWAU_UPD";   [ -n "$_MF_UPD" ]  && _MF_UPD="$(readlink -f "$_MF_UPD" 2>/dev/null || echo "$_MF_UPD")"
+xwau_write_manifest "$GAME" variant=steam release_tag="$RELEASE_TAG" \
+    xwau_full="$_MF_FULL" xwau_upd="$_MF_UPD" ratio="$RATIO" preset="$PRESET" \
+    resolution="$RESOLUTION" concourse_pace="$CONCOURSE_PACE" appid="$APPID" \
+    installed_at="$(date -u +%FT%TZ 2>/dev/null || echo unknown)"
 
 # ---------------------------------------------------------------- done
 log "Install complete (win64 via Steam Proton)"

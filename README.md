@@ -51,12 +51,12 @@ You don't need `git` — grab the release tarball and unpack it (the installer i
 a small tree of scripts, not a single file, so download the whole thing):
 
 ```bash
-curl -fL https://github.com/psoetens/xwau-linux/archive/refs/tags/v0.3.0.tar.gz | tar xz
-cd xwau-linux-0.3.0
+curl -fL https://github.com/psoetens/xwau-linux/archive/refs/tags/v0.4.0.tar.gz | tar xz
+cd xwau-linux-0.4.0
 ```
 
 That tag's scripts are pinned to download the matching prebuilt binaries, so the
-two always stay in sync. For a different version, swap `v0.3.0` for any tag on
+two always stay in sync. For a different version, swap `v0.4.0` for any tag on
 the [Releases](https://github.com/psoetens/xwau-linux/releases) page.
 
 If you *do* have `git` (e.g. to contribute or track `main`):
@@ -123,6 +123,47 @@ game and wires up Steam's Launch Options.)
   The standalone installer bundles it (Kron4ek); the Steam installer uses Proton.
 - A CLR runtime in the prefix: **wine-mono** (default) *or* dotnet48
 - DXVK (32-bit DLLs for the game) + 32-bit Vulkan drivers
+
+## Uninstalling
+
+`--remove` restores the **original (vanilla)** game from the backup the installer
+made at first run (kept alongside the game dir as `<game-dir>.vanilla`):
+
+```bash
+./install-xwau-steam.sh --remove          # Steam copy
+./install-xwau-linux.sh --remove          # GOG / standalone copy
+```
+
+- On **Steam**, it also clears the compat tool + launch options the installer
+  set — so **close Steam first** (it refuses otherwise, since Steam would
+  overwrite the change on exit).
+- The Proton prefix (`compatdata/<appid>`) and the standalone wine prefix are
+  **left in place** — they're reused on the next launch/install. Delete them
+  yourself if you want a completely clean slate.
+- Your pilots/saves stored in the game dir are part of the mod state and are
+  reverted; back them up first if you want to keep them.
+
+## Upgrading (reinstall)
+
+`--reinstall` is `--remove` followed by a fresh install using **the version in the
+directory you run it from**. It reuses the XWAU zip paths and options (ratio /
+preset / resolution) recorded in `<game-dir>/.xwau-install.json` at first install,
+so you don't re-pass the ~6.6 GB `--xwau-full` / `--xwau-upd`:
+
+```bash
+cd xwau-linux-0.4.0                        # the newer release you downloaded
+./install-xwau-steam.sh --reinstall        # tears down the old version, installs this one
+```
+
+- To **upgrade**: download the newer release (see [Get the installer](#get-the-installer)),
+  `cd` into it, and run `--reinstall`. It cleans up the currently-installed
+  version and lays down the new one — reusing the mod zips you already have.
+- Pass `--xwau-full` / `--xwau-upd` (or `--ratio` / `--preset` / `--resolution`)
+  to **override** what the manifest recorded — e.g. if you moved the zip files.
+- If you first installed with a build that predates the manifest (no
+  `.xwau-install.json` in the game dir), the first `--reinstall` needs
+  `--xwau-full` / `--xwau-upd` passed explicitly; after that it's recorded.
+- On Steam, **close Steam first** (same reason as `--remove`).
 
 ## Troubleshooting
 
