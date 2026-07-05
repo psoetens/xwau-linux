@@ -66,7 +66,9 @@ git clone https://github.com/psoetens/xwau-linux.git
 cd xwau-linux
 ```
 
-## GOG users: prepare the game from the offline installer
+## GOG users: installation instructions
+
+### Download game + extract
 
 Download the **offline backup installer** from your GOG account — the file
 named like `setup_star_wars_-_x-wing_alliance_2.02_(NNNNN).exe`. Do **not**
@@ -85,7 +87,7 @@ innoextract -I app "setup_star_wars_-_x-wing_alliance_2.02_(NNNNN).exe" # replac
 
 That `app/` directory is your game dir — pass it as `--game-dir` below.
 
-## Example: install for a GOG copy
+### Install Example for GOG
 
 ```bash
 ./install-xwau-linux.sh \
@@ -96,33 +98,39 @@ That `app/` directory is your game dir — pass it as `--game-dir` below.
 
 This builds the wine prefix, installs XWAU 2025 into the game dir (keeping a
 `.vanilla` backup next to it), downloads the Linux binaries from the release,
-and writes an `xwa-linux-launch.sh` launcher into the game dir. Then just:
+and writes an `xwa-linux-launch.sh` launcher into the game dir.
+
+### Run for GOG
+
+Go into your `app/` directory and run the launch command:
 
 ```bash
-~/Downloads/app/xwa-linux-launch.sh
+cd ~/Downloads/app
+./xwa-linux-launch.sh
 ```
 
-(Steam owners skip all of the above — `install-xwau-steam.sh` auto-detects the
-game and wires up Steam's Launch Options.)
+## Steam users: installation instructions
 
-## What's in this repo
+### Purchase and Download the game
 
-- `hook-patcher-native/` — a native (unmanaged) C++ reimplementation of XWAU's
-  managed `hook_patcher`. The upstream one is a managed IJW assembly that
-  bootstraps the CLR in `DllMain`; the native port removes that so the game can
-  run under **wine-mono** (no ~400 MB dotnet48 install). See its README.
-- `installer/` — shared installer logic (`common.sh`, Steam auto-config).
-- `tools/` — the standalone launcher template.
-- `docs/` — [architecture notes](docs/win64-architecture.md) and the historical
-  32-bit [memory-pressure limitation](docs/memory-pressure.md).
+In you steam library purchase and **download** the original 'STAR WARS: X-Wing Alliance' game.
 
-## Requirements (summary)
+**Then close Steam.**
 
-- X-Wing Alliance (GOG or Steam) + the XWAU 2025 zips
-- **wine-11** — needed for HD-video Media Foundation and the in-process hooks.
-  The standalone installer bundles it (Kron4ek); the Steam installer uses Proton.
-- A CLR runtime in the prefix: **wine-mono** (default) *or* dotnet48
-- DXVK (32-bit DLLs for the game) + 32-bit Vulkan drivers
+### Install Example for Steam
+
+```bash
+./install-xwau-steam.sh \
+  --xwau-full ~/Downloads/XWAU2025_Full_1.0.0.zip \
+  --xwau-upd  ~/Downloads/XWAU2025_UPD_1.1.0.zip
+```
+
+The script will find your Steam installation from above and do the proper steps. If
+you did not close Steam, it will refuse to run.
+
+### Run from Steam
+
+Re-launch steam and press the PLAY button of the 'STAR WARS: X-Wing Alliance' game.
 
 ## Uninstalling
 
@@ -138,9 +146,6 @@ made at first run (kept alongside the game dir as `<game-dir>.vanilla`):
   set, so **Steam must be fully closed** — the installer **aborts up front** if
   Steam is running (pass `--no-steam-config` to skip touching Steam's config and
   run with Steam open).
-- `--remove` also deletes the `<game-dir>.vanilla` backup — it's a full,
-  clean uninstall with no leftover restore point. (A later fresh install makes a
-  new backup from the then-pristine game.)
 - The Proton prefix (`compatdata/<appid>`) and the standalone wine prefix are
   **left in place** — they're reused on the next launch/install. Delete them
   yourself if you want a completely clean slate.
@@ -155,10 +160,9 @@ made at first run (kept alongside the game dir as `<game-dir>.vanilla`):
 
 ## Upgrading (reinstall)
 
-`--reinstall` is `--remove` followed by a fresh install using **the version in the
-directory you run it from**. It reuses the XWAU zip paths and options (ratio /
+`--reinstall` reuses the XWAU zip paths and options (ratio /
 preset / resolution) recorded in `<game-dir>/.xwau-install.json` at first install,
-so you don't re-pass the ~6.6 GB `--xwau-full` / `--xwau-upd`:
+so you don't re-pass the ~6.6 GB `--xwau-full` / `--xwau-upd` arguments:
 
 ```bash
 cd xwau-linux-0.4.3                        # the newer release you downloaded
@@ -195,6 +199,26 @@ cd xwau-linux-0.4.3                        # the newer release you downloaded
   codec libs with `rpm-ostree` unless the check actually flags something.
 - **The game exits immediately:** X-Wing Alliance quits if no
   joystick/controller is connected — plug one in.
+
+## What's in this repo
+
+- `hook-patcher-native/` — a native (unmanaged) C++ reimplementation of XWAU's
+  managed `hook_patcher`. The upstream one is a managed IJW assembly that
+  bootstraps the CLR in `DllMain`; the native port removes that so the game can
+  run under **wine-mono** (no ~400 MB dotnet48 install). See its README.
+- `installer/` — shared installer logic (`common.sh`, Steam auto-config).
+- `tools/` — the standalone launcher template.
+- `docs/` — [architecture notes](docs/win64-architecture.md) and the historical
+  32-bit [memory-pressure limitation](docs/memory-pressure.md).
+
+## Requirements (summary)
+
+- X-Wing Alliance (GOG or Steam) + the XWAU 2025 zips
+- **wine-11** — needed for HD-video Media Foundation and the in-process hooks.
+  The standalone installer bundles it (Kron4ek); the Steam installer uses Proton.
+- A CLR runtime in the prefix: **wine-mono** (default) *or* dotnet48
+- DXVK (32-bit DLLs for the game) + 32-bit Vulkan drivers
+
 
 ## License
 
