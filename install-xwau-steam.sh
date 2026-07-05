@@ -17,12 +17,14 @@
 # Options:
 #   --game-dir PATH   game dir (default: auto-detect Steam)
 #   --work-dir PATH   scratch dir (default: ~/.cache/xwau-linux-install)
-#   --release TAG     win64 binary release to install (default v0.4.1)
+#   --release TAG     win64 binary release to install (default v0.4.2)
 #   --bin-dir PATH    local win64 binaries (optional dev override; default: download from --release)
 #   --ratio {2,3}     XWAU aspect-ratio finalize (default 2 = 16:9)
 #   --preset NAME     veryLow|Low|Medium|High|Ultra (default High)
 #   --resolution WxH  force [hook_resolution]
-#   --no-steam-config    don't edit Steam's config; just print the manual steps
+#   --no-steam-config    don't touch Steam's config (compat tool + launch options);
+#                        print the manual steps instead. Also lets the install run
+#                        with Steam open (otherwise it aborts until Steam is closed).
 #   --steam-config-only  (re)apply only the Steam compat tool + launch options, then exit
 #                        (use this after closing Steam, if it was running during install)
 #   --proton-token NAME  Steam compat-tool id to set (default proton_11)
@@ -32,8 +34,8 @@
 #                     zip paths recorded at first install (pass --xwau-full/--xwau-upd to override)
 #
 # The installer sets the Proton compat tool + Launch Options for you (Steam must be
-# CLOSED for that; if it's running it tells you to re-run with --steam-config-only).
-# NEVER run Steam "Verify integrity of game files" on a modded install.
+# CLOSED for that; if it's running the install aborts until you close it, or pass
+# --no-steam-config). NEVER run Steam "Verify integrity of game files" on a modded install.
 
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -43,7 +45,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 WORK="$HOME/.cache/xwau-linux-install"
 STEAM_ROOT="$HOME/.local/share/Steam"
 COMPAT_DIR="$STEAM_ROOT/compatibilitytools.d"
-RELEASE_TAG="v0.4.1"          # win64 binaries are downloaded from this release
+RELEASE_TAG="v0.4.2"          # win64 binaries are downloaded from this release
 APPID=361670
 PROTON_TOKEN="proton_11"      # Steam compat-tool id for Proton 11 (override: --proton-token)
 DO_STEAM_CONFIG=1             # auto-set compat tool + launch options (needs Steam closed)
@@ -74,11 +76,19 @@ while [ $# -gt 0 ]; do
         --skip-configs) SKIP_CONFIGS=1; shift ;;
         --remove) REMOVE=1; shift ;;
         --reinstall) REINSTALL=1; shift ;;
-        -h|--help) sed -n '2,36p' "$0"; exit 0 ;;
+        -h|--help) sed -n '2,38p' "$0"; exit 0 ;;
         *) echo "unknown option: $1 (see --help)"; exit 2 ;;
     esac
 done
 mkdir -p "$WORK"
+
+# Editing Steam's config requires Steam FULLY CLOSED (it rewrites config.vdf /
+# localconfig.vdf on exit). Abort up front rather than doing a partial install and
+# deferring config to a second run. --no-steam-config skips all Steam-config edits
+# (you set the compat tool + launch options in Steam yourself) and lifts this.
+if [ "$DO_STEAM_CONFIG" = 1 ] && pgrep -x steam >/dev/null 2>&1; then
+    die "Steam is running — close it completely and re-run, or pass --no-steam-config to install without changing Steam's config."
+fi
 
 # Steam Launch Options the installer sets/prints. WINEDLLOVERRIDES makes the
 # game-dir ddraw/dinput hooks load. (We do NOT wrap %command% — intercepting it
@@ -101,12 +111,7 @@ configure_steam() {
     if [ "$DO_STEAM_CONFIG" != 1 ]; then
         log "Steam config (manual — --no-steam-config)"; print_manual_steam_steps; return 0
     fi
-    if pgrep -x steam >/dev/null 2>&1; then
-        warn "Steam is running — can't safely edit its config. Close Steam completely, then run:"
-        echo "    \"$0\" --steam-config-only"
-        print_manual_steam_steps
-        return 0
-    fi
+    # Steam is guaranteed closed here (the early guard aborts otherwise).
     log "Configuring Steam (Proton compat tool + launch options) for appid $APPID"
     if python3 "$SCRIPT_DIR/installer/steam_config.py" --steam-root "$STEAM_ROOT" \
          --appid "$APPID" --token "$PROTON_TOKEN" --launch-options "$LAUNCH_OPTS"; then
@@ -161,17 +166,21 @@ if [ "$REINSTALL" = 1 ]; then
     fi
 fi
 if [ "$REMOVE" = 1 ] || [ "$REINSTALL" = 1 ]; then
-    pgrep -x steam >/dev/null 2>&1 && die "Steam is running — close Steam completely, then re-run (need Steam closed to edit its config)."
-    log "Removing XWAU install (restore vanilla + clear Steam config)"
+    # (Steam already guaranteed closed by the early guard unless --no-steam-config,
+    # in which case we don't touch Steam config here either.)
+    log "Removing XWAU install (restoring vanilla game files)"
     xwau_remove_gamefiles "$GAME"
-    if python3 "$SCRIPT_DIR/installer/steam_config.py" --remove --steam-root "$STEAM_ROOT" --appid "$APPID"; then
-        echo "    cleared Steam compat tool + launch options"
-    else
-        warn "couldn't clear Steam config automatically (edit manually if needed)"
+    if [ "$DO_STEAM_CONFIG" = 1 ]; then
+        if python3 "$SCRIPT_DIR/installer/steam_config.py" --remove --steam-root "$STEAM_ROOT" --appid "$APPID"; then
+            echo "    cleared Steam compat tool + launch options"
+        else
+            warn "couldn't clear Steam config automatically (edit manually if needed)"
+        fi
     fi
     if [ "$REMOVE" = 1 ]; then
-        log "Removed — X-Wing Alliance is back to the original (vanilla) version."
-        echo "    (Proton prefix left in place; delete $COMPATDATA to fully reset it.)"
+        rm -rf "$GAME.vanilla"
+        log "Removed — X-Wing Alliance restored to vanilla and the mod uninstalled."
+        echo "    (removed backup $GAME.vanilla; Proton prefix left in place — delete $COMPATDATA to fully reset.)"
         exit 0
     fi
     log "Reinstalling from this directory (release $RELEASE_TAG)"

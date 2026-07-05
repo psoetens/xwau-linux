@@ -51,12 +51,12 @@ You don't need `git` — grab the release tarball and unpack it (the installer i
 a small tree of scripts, not a single file, so download the whole thing):
 
 ```bash
-curl -fL https://github.com/psoetens/xwau-linux/archive/refs/tags/v0.4.1.tar.gz | tar xz
-cd xwau-linux-0.4.1
+curl -fL https://github.com/psoetens/xwau-linux/archive/refs/tags/v0.4.2.tar.gz | tar xz
+cd xwau-linux-0.4.2
 ```
 
 That tag's scripts are pinned to download the matching prebuilt binaries, so the
-two always stay in sync. For a different version, swap `v0.4.1` for any tag on
+two always stay in sync. For a different version, swap `v0.4.2` for any tag on
 the [Releases](https://github.com/psoetens/xwau-linux/releases) page.
 
 If you *do* have `git` (e.g. to contribute or track `main`):
@@ -135,8 +135,12 @@ made at first run (kept alongside the game dir as `<game-dir>.vanilla`):
 ```
 
 - On **Steam**, it also clears the compat tool + launch options the installer
-  set — so **close Steam first** (it refuses otherwise, since Steam would
-  overwrite the change on exit).
+  set, so **Steam must be fully closed** — the installer **aborts up front** if
+  Steam is running (pass `--no-steam-config` to skip touching Steam's config and
+  run with Steam open).
+- `--remove` also deletes the `<game-dir>.vanilla` backup — it's a full,
+  clean uninstall with no leftover restore point. (A later fresh install makes a
+  new backup from the then-pristine game.)
 - The Proton prefix (`compatdata/<appid>`) and the standalone wine prefix are
   **left in place** — they're reused on the next launch/install. Delete them
   yourself if you want a completely clean slate.
@@ -157,7 +161,7 @@ preset / resolution) recorded in `<game-dir>/.xwau-install.json` at first instal
 so you don't re-pass the ~6.6 GB `--xwau-full` / `--xwau-upd`:
 
 ```bash
-cd xwau-linux-0.4.1                        # the newer release you downloaded
+cd xwau-linux-0.4.2                        # the newer release you downloaded
 ./install-xwau-steam.sh --reinstall        # tears down the old version, installs this one
 ```
 

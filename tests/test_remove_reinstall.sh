@@ -121,6 +121,7 @@ xwau_write_manifest "$G3" variant=standalone release_tag=v0.3.0 xwau_full=/x/f.z
 check "$rc" 0 "standalone --remove exits 0"
 { [ -e "$G3/ddraw_effects.dll" ] && r=present; } || r=gone; check "$r" gone "standalone --remove drops mod DLL"
 { [ -e "$G3/.xwau-install.json" ] && r=present; } || r=gone; check "$r" gone "standalone --remove drops manifest"
+{ [ -e "$G3.vanilla" ] && r=present; } || r=gone; check "$r" gone "standalone --remove also deletes the .vanilla backup"
 
 echo "----"
 echo "passed=$pass failed=$fail"
