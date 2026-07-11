@@ -157,7 +157,7 @@ xwau_payload_replay() {
 # If BIN_DIR is empty, downloads the binaries from the GitHub release RELEASE_TAG
 # (checksum-verified) into WORK; BIN_DIR is the developer override for local builds.
 XWAU_RELEASE_BASE="https://github.com/psoetens/xwau-linux/releases/download"
-XWAU_BIN_FILES="ddraw_effects.dll TGSMUSH.DLL hook_patcher.dll hook_32bpp_net.dll hook_concourse_net.dll hook_32bpp_bridge.dll hook_concourse_bridge.dll Alliance.exe Alliance.jpg Alliance.ico AllianceTools.txt SoundClick.wav SoundLoad.wav SoundPlay.wav"
+XWAU_BIN_FILES="ddraw_effects.dll TGSMUSH.DLL hook_patcher.dll hook_32bpp_net.dll hook_concourse_net.dll hook_32bpp_bridge.dll hook_concourse_bridge.dll Alliance.exe Alliance.jpg Alliance.ico AllianceTools.txt SoundClick.wav SoundLoad.wav SoundPlay.wav XwaJoystickConfig.exe XwaJoystickConfig.ico hook_joystick_ff.cfg"
 xwau_install_binaries() {
     local game="$1" bin_dir="$2" release_tag="${3:-}" work="${4:-$HOME/.cache/xwau-linux-install}"
     if [ -n "$bin_dir" ]; then
@@ -196,18 +196,32 @@ xwau_install_binaries() {
     # renders black on plain wine. Backs the stock one up as *.xwau-orig; the
     # case-insensitive find in _xwau_put resolves the on-disk Alliance.EXE.
     _xwau_put Alliance.exe           .xwau-orig   # native launcher (win64, no .NET)
+    # Native (no-.NET) joystick configurator — launched from the launcher's
+    # built-in "Joystick Configurator" button. Replaces the stock .NET one
+    # (which renders black on plain wine, like the old launcher).
+    _xwau_put XwaJoystickConfig.exe  .xwau-orig   # native joystick config (win64, no .NET)
     local b
     for b in hook_32bpp_bridge.dll hook_concourse_bridge.dll; do
         [ -f "$bin_dir/$b" ] && cp "$bin_dir/$b" "$game/$b" && echo "    installed $b"
     done
-    # Launcher support files (background, tool menu, icon, click sounds). Placed
-    # next to a case-resolved existing copy when present, else at the given name.
+    # Launcher/tool support files (background, tool menu, icons, click sounds).
+    # Placed next to a case-resolved existing copy when present, else at the name.
     local s tgt
-    for s in Alliance.jpg Alliance.ico AllianceTools.txt SoundClick.wav SoundLoad.wav SoundPlay.wav; do
+    for s in Alliance.jpg Alliance.ico AllianceTools.txt SoundClick.wav SoundLoad.wav SoundPlay.wav XwaJoystickConfig.ico; do
         [ -f "$bin_dir/$s" ] || continue
         tgt="$(find "$game" -maxdepth 1 -iname "$s" | head -1)"; tgt="${tgt:-$game/$s}"
         cp "$bin_dir/$s" "$tgt" && echo "    installed $s"
     done
+    # hook_joystick_ff.cfg: default config for the (XWAU-shipped) hook_joystick_ff.dll.
+    # Install ONLY IF ABSENT so a reinstall never clobbers a user's FF settings
+    # (the config overlay + remove step preserve user *.cfg).
+    if [ -f "$bin_dir/hook_joystick_ff.cfg" ]; then
+        if [ -z "$(find "$game" -maxdepth 1 -iname hook_joystick_ff.cfg)" ]; then
+            cp "$bin_dir/hook_joystick_ff.cfg" "$game/hook_joystick_ff.cfg" && echo "    installed hook_joystick_ff.cfg (default)"
+        else
+            echo "    kept existing hook_joystick_ff.cfg"
+        fi
+    fi
     # hook_keyboard_bg.dll is intentionally NOT installed on win64 (the Esc focus-loss
     # it fixed was the win32 sidecar window; no sidecar here — verified).
 }
