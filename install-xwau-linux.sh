@@ -22,7 +22,7 @@
 #   --wine-version V   Kron4ek wine version to fetch (default: 11.11)
 #   --wine-dir PATH    use an existing wine-11 build instead of downloading Kron4ek
 #   --runtime NAME     wine-mono (default) | dotnet48
-#   --release TAG      win64 binary release to install (default v0.5.0)
+#   --release TAG      win64 binary release to install (default v0.5.1)
 #   --bin-dir PATH     local win64 binaries (optional dev override; default: download from --release)
 #   --ratio {2,3}      XWAU aspect-ratio finalize (default 2 = 16:9)
 #   --preset NAME      veryLow|Low|Medium|High|Ultra (default High; no VA ceiling on win64)
@@ -45,7 +45,7 @@ RUNTIME="wine-mono"                   # wine-mono | dotnet48
 MONO_MSI_VER="11.1.0"                 # wine-mono version (madewokherd/wine-mono)
 GE_NAME="GE-Proton10-34"              # DXVK + gstreamer-codec donor
 GE_URL="https://github.com/GloriousEggroll/proton-ge-custom/releases/download/${GE_NAME}/${GE_NAME}.tar.gz"
-RELEASE_TAG="v0.5.0"                   # win64 binaries downloaded from this release
+RELEASE_TAG="v0.5.1"                   # win64 binaries downloaded from this release
 BIN_DIR=""                            # --bin-dir = optional local-build override
 PREFIX="$HOME/.local/share/xwa-prefix-w64"
 WORK="$HOME/.cache/xwau-linux-install"
@@ -109,10 +109,18 @@ xwau_check_fonts
 
 # ---------------------------------------------------------------- step 2: game dir
 if [ -z "$GAME" ]; then
-    log "Locating X-Wing Alliance"
-    GAME="$(xwau_locate_game)" || die "could not find the game — pass --game-dir (GOG: innoextract the offline installer first; see README)"
+    if [ "$REINSTALL" = 1 ] || [ "$REMOVE" = 1 ]; then
+        # Reuse the dir recorded at install (registry); don't re-auto-detect,
+        # which would wrongly pick a Steam copy for a GOG install.
+        GAME="$(xwau_resolve_reinstall_dir "" standalone)" || die "pass --game-dir to choose which install"
+    else
+        log "Locating X-Wing Alliance"
+        GAME="$(xwau_locate_game)" || die "could not find the game — pass --game-dir (GOG: innoextract the offline installer first; see README)"
+    fi
 fi
 [ -d "$GAME" ] || die "game dir not found: $GAME"
+# Standalone installer must never operate on a Steam install (use the Steam one).
+xwau_refuse_steam_dir "$GAME"
 echo "    game: $GAME"
 
 # Snapshot the user's config.cfg now (before the payload rewrites it) so we can
@@ -144,6 +152,7 @@ if [ "$REMOVE" = 1 ] || [ "$REINSTALL" = 1 ]; then
     xwau_remove_gamefiles "$GAME"
     if [ "$REMOVE" = 1 ]; then
         rm -rf "$GAME.vanilla"
+        xwau_registry_del "$GAME"
         log "Removed — X-Wing Alliance restored to vanilla and the mod uninstalled."
         echo "    (removed backup $GAME.vanilla; wine prefix at $PREFIX left in place — delete it to fully reset.)"
         exit 0
@@ -390,9 +399,13 @@ fi
 _MF_FULL="$XWAU_FULL"; [ -n "$_MF_FULL" ] && _MF_FULL="$(readlink -f "$_MF_FULL" 2>/dev/null || echo "$_MF_FULL")"
 _MF_UPD="$XWAU_UPD";   [ -n "$_MF_UPD" ]  && _MF_UPD="$(readlink -f "$_MF_UPD" 2>/dev/null || echo "$_MF_UPD")"
 xwau_write_manifest "$GAME" variant=standalone release_tag="$RELEASE_TAG" \
+    game_dir="$GAME" \
     xwau_full="$_MF_FULL" xwau_upd="$_MF_UPD" ratio="$RATIO" preset="$PRESET" \
     resolution="$RESOLUTION" concourse_pace="$CONCOURSE_PACE" \
     installed_at="$(date -u +%FT%TZ 2>/dev/null || echo unknown)"
+# Record this dir so a later --reinstall/--remove (no --game-dir) reuses it
+# instead of re-auto-detecting (which is Steam-only and would pick the wrong copy).
+xwau_registry_add "$GAME"
 
 log "Install complete (standalone: Kron4ek wine-$WINE_VERSION + $RUNTIME)"
 cat <<EOF

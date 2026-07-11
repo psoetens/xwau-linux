@@ -17,7 +17,7 @@
 # Options:
 #   --game-dir PATH   game dir (default: auto-detect Steam)
 #   --work-dir PATH   scratch dir (default: ~/.cache/xwau-linux-install)
-#   --release TAG     win64 binary release to install (default v0.5.0)
+#   --release TAG     win64 binary release to install (default v0.5.1)
 #   --bin-dir PATH    local win64 binaries (optional dev override; default: download from --release)
 #   --ratio {2,3}     XWAU aspect-ratio finalize (default 2 = 16:9)
 #   --preset NAME     veryLow|Low|Medium|High|Ultra (default High)
@@ -46,7 +46,7 @@ WORK="$HOME/.cache/xwau-linux-install"
 STEAM_ROOT="$HOME/.local/share/Steam"
 COMPAT_DIR="$STEAM_ROOT/compatibilitytools.d"
 WRAP="$HOME/.local/share/xwau-linux/xwa-steam-run.sh"   # host launch wrapper (silences GNOME not-responding dialog during shader compile)
-RELEASE_TAG="v0.5.0"          # win64 binaries are downloaded from this release
+RELEASE_TAG="v0.5.1"          # win64 binaries are downloaded from this release
 APPID=361670
 PROTON_TOKEN="proton_11"      # Steam compat-tool id for Proton 11 (override: --proton-token)
 DO_STEAM_CONFIG=1             # auto-set compat tool + launch options (needs Steam closed)
@@ -148,8 +148,14 @@ xwau_check_fonts
 
 # ---------------------------------------------------------------- step 2: game dir
 if [ -z "$GAME" ]; then
-    log "Locating X-Wing Alliance (Steam appid 361670)"
-    GAME="$(xwau_locate_game)" || die "could not find the game — install it from Steam, or pass --game-dir"
+    if [ "$REINSTALL" = 1 ] || [ "$REMOVE" = 1 ]; then
+        # Reuse the Steam dir recorded at install (a machine may also have a
+        # GOG/standalone install — pick the steam-variant one, not that).
+        GAME="$(xwau_resolve_reinstall_dir "" steam)" || die "pass --game-dir to choose which install"
+    else
+        log "Locating X-Wing Alliance (Steam appid 361670)"
+        GAME="$(xwau_locate_game)" || die "could not find the game — install it from Steam, or pass --game-dir"
+    fi
 fi
 [ -d "$GAME" ] || die "game dir not found: $GAME"
 echo "    game: $GAME"
@@ -196,6 +202,7 @@ if [ "$REMOVE" = 1 ] || [ "$REINSTALL" = 1 ]; then
     fi
     if [ "$REMOVE" = 1 ]; then
         rm -rf "$GAME.vanilla"
+        xwau_registry_del "$GAME"
         log "Removed — X-Wing Alliance restored to vanilla and the mod uninstalled."
         echo "    (removed backup $GAME.vanilla; Proton prefix left in place — delete $COMPATDATA to fully reset.)"
         exit 0
@@ -285,9 +292,13 @@ configure_steam
 _MF_FULL="$XWAU_FULL"; [ -n "$_MF_FULL" ] && _MF_FULL="$(readlink -f "$_MF_FULL" 2>/dev/null || echo "$_MF_FULL")"
 _MF_UPD="$XWAU_UPD";   [ -n "$_MF_UPD" ]  && _MF_UPD="$(readlink -f "$_MF_UPD" 2>/dev/null || echo "$_MF_UPD")"
 xwau_write_manifest "$GAME" variant=steam release_tag="$RELEASE_TAG" \
+    game_dir="$GAME" \
     xwau_full="$_MF_FULL" xwau_upd="$_MF_UPD" ratio="$RATIO" preset="$PRESET" \
     resolution="$RESOLUTION" concourse_pace="$CONCOURSE_PACE" appid="$APPID" \
     installed_at="$(date -u +%FT%TZ 2>/dev/null || echo unknown)"
+# Record this dir so a later --reinstall/--remove (no --game-dir) reuses the
+# Steam install specifically (a machine may also have a GOG/standalone one).
+xwau_registry_add "$GAME"
 
 # ---------------------------------------------------------------- done
 log "Install complete (win64 via Steam Proton)"

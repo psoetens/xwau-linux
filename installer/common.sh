@@ -42,6 +42,70 @@ xwau_locate_game() {
     return 1
 }
 
+# ---- install registry (so --reinstall/--remove reuse the dir, not re-detect) ----
+# A newline list of absolute game dirs we've installed into, at
+# ${XDG_STATE_HOME:-~/.local/state}/xwau-linux/installs. GOG installs are never
+# auto-detectable (xwau_locate_game is Steam-only), so without this a GOG
+# --reinstall would wrongly fall through to the Steam copy.
+xwau_registry_file() { echo "${XDG_STATE_HOME:-$HOME/.local/state}/xwau-linux/installs"; }
+xwau_registry_add() {  # $1=game dir
+    local game abs reg
+    abs="$(cd "$1" 2>/dev/null && pwd -P)" || return 0   # best-effort; never fail an install
+    reg="$(xwau_registry_file)"; mkdir -p "$(dirname "$reg")" 2>/dev/null || return 0
+    [ -f "$reg" ] && grep -qxF "$abs" "$reg" && return 0
+    printf '%s\n' "$abs" >> "$reg"
+}
+xwau_registry_list() {  # prints existing registered dirs (that still exist), one per line
+    local reg line; reg="$(xwau_registry_file)"; [ -f "$reg" ] || return 0
+    while IFS= read -r line; do [ -n "$line" ] && [ -d "$line" ] && echo "$line"; done < "$reg"
+}
+xwau_registry_del() {  # $1=game dir — drop it (called on --remove so no stale entry)
+    local abs reg tmp; reg="$(xwau_registry_file)"; [ -f "$reg" ] || return 0
+    abs="$(cd "$1" 2>/dev/null && pwd -P)" || abs="$1"
+    tmp="$(mktemp)"; grep -vxF "$abs" "$reg" > "$tmp" 2>/dev/null || true; mv "$tmp" "$reg"
+}
+
+# ---- resolve the game dir for --reinstall / --remove ----
+# Variant-aware so a machine with BOTH a GOG (standalone) and a Steam install
+# reuses the RIGHT one per installer. Order: explicit --game-dir > registry
+# entries whose manifest variant == the caller's variant (exactly one) > locate.
+# On >=2 same-variant entries, lists them and fails (caller should die → pass
+# --game-dir). Echoes the chosen dir; diagnostics to stderr. $1=explicit dir
+# (may be empty), $2=variant ("standalone" | "steam").
+xwau_resolve_reinstall_dir() {  # $1=explicit game dir (may be empty)  $2=variant
+    local explicit="$1" want="$2" d v; local matches=()
+    if [ -n "$explicit" ]; then echo "$explicit"; return 0; fi
+    while IFS= read -r d; do
+        [ -n "$d" ] || continue
+        v="$(/usr/bin/grep -oP '"variant"\s*:\s*"\K[^"]+' "$d/.xwau-install.json" 2>/dev/null || true)"
+        [ "$v" = "$want" ] && matches+=("$d")
+    done < <(xwau_registry_list)
+    if [ "${#matches[@]}" = 1 ]; then
+        echo "    (reusing the recorded $want install dir: ${matches[0]})" >&2
+        echo "${matches[0]}"; return 0
+    elif [ "${#matches[@]}" -ge 2 ]; then
+        warn "multiple $want installs recorded — pass --game-dir to choose one:"
+        printf '      %s\n' "${matches[@]}" >&2
+        return 1
+    fi
+    xwau_locate_game   # none recorded for this variant: fall back to auto-detect
+}
+
+# ---- Steam-library guard (standalone installer must not adopt a Steam dir) ----
+# The standalone (Kron4ek) stack has no business overwriting a Steam/Proton
+# install; that's install-xwau-steam.sh's job. Refuse any …/steamapps/common/…
+# path however it was resolved (auto-detect OR --game-dir).
+xwau_refuse_steam_dir() {  # $1=game dir
+    case "$1" in
+        */steamapps/common/*)
+            die "that game dir is a Steam install:
+    $1
+  The standalone installer is for GOG/other (non-Steam) copies. For Steam use:
+    ./install-xwau-steam.sh
+  Or pass --game-dir pointing at a non-Steam copy (e.g. an innoextracted GOG app/)." ;;
+    esac
+}
+
 # ---- vanilla backup (restore point) ----
 xwau_vanilla_backup() {
     local game="$1"
@@ -491,7 +555,7 @@ try:
     d = json.load(open(sys.argv[1]))
 except Exception:
     sys.exit(1)
-for k in ("variant","release_tag","xwau_full","xwau_upd","ratio","preset","resolution","concourse_pace","appid"):
+for k in ("variant","release_tag","xwau_full","xwau_upd","ratio","preset","resolution","concourse_pace","appid","game_dir"):
     print("MF_%s=%s" % (k.upper(), shlex.quote(str(d.get(k, "")))))
 PY
 )" || return 1
