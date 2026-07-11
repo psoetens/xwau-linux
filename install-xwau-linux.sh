@@ -22,7 +22,7 @@
 #   --wine-version V   Kron4ek wine version to fetch (default: 11.11)
 #   --wine-dir PATH    use an existing wine-11 build instead of downloading Kron4ek
 #   --runtime NAME     wine-mono (default) | dotnet48
-#   --release TAG      win64 binary release to install (default v0.4.4)
+#   --release TAG      win64 binary release to install (default v0.5.0)
 #   --bin-dir PATH     local win64 binaries (optional dev override; default: download from --release)
 #   --ratio {2,3}      XWAU aspect-ratio finalize (default 2 = 16:9)
 #   --preset NAME      veryLow|Low|Medium|High|Ultra (default High; no VA ceiling on win64)
@@ -45,7 +45,7 @@ RUNTIME="wine-mono"                   # wine-mono | dotnet48
 MONO_MSI_VER="11.1.0"                 # wine-mono version (madewokherd/wine-mono)
 GE_NAME="GE-Proton10-34"              # DXVK + gstreamer-codec donor
 GE_URL="https://github.com/GloriousEggroll/proton-ge-custom/releases/download/${GE_NAME}/${GE_NAME}.tar.gz"
-RELEASE_TAG="v0.4.4"                   # win64 binaries downloaded from this release
+RELEASE_TAG="v0.5.0"                   # win64 binaries downloaded from this release
 BIN_DIR=""                            # --bin-dir = optional local-build override
 PREFIX="$HOME/.local/share/xwa-prefix-w64"
 WORK="$HOME/.cache/xwau-linux-install"
@@ -349,8 +349,14 @@ if command -v gsettings >/dev/null 2>&1 && gsettings get org.gnome.mutter check-
         && _ca_restore() { gsettings set org.gnome.mutter check-alive-timeout "\$_ca_old" 2>/dev/null || true; }
 fi
 trap _ca_restore EXIT INT TERM
-"\$WINE_DIR/bin/wine" "\$GAME/xwingalliance.exe" > "\$HOME/xwa-linux.log" 2>&1
+# Launch via the native XWA launcher (Alliance.EXE, no .NET). The launcher spawns
+# the game and then exits itself, so this wine call returns while the game is
+# still running -- wait for ALL prefix processes (the game) to finish with
+# 'wineserver -w' before the cleanup kill, or -k would kill the game we just
+# started (symptom: launcher vanishes, game never appears).
+"\$WINE_DIR/bin/wine" "\$GAME/Alliance.EXE" > "\$HOME/xwa-linux.log" 2>&1
 RC=\$?
+"\$WINE_DIR/bin/wineserver" -w
 "\$WINE_DIR/bin/wineserver" -k 2>/dev/null
 _ca_restore
 exit \$RC

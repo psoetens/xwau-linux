@@ -93,7 +93,7 @@ xwau_payload_replay() {
 # If BIN_DIR is empty, downloads the binaries from the GitHub release RELEASE_TAG
 # (checksum-verified) into WORK; BIN_DIR is the developer override for local builds.
 XWAU_RELEASE_BASE="https://github.com/psoetens/xwau-linux/releases/download"
-XWAU_BIN_FILES="ddraw_effects.dll TGSMUSH.DLL hook_patcher.dll hook_32bpp_net.dll hook_concourse_net.dll hook_32bpp_bridge.dll hook_concourse_bridge.dll"
+XWAU_BIN_FILES="ddraw_effects.dll TGSMUSH.DLL hook_patcher.dll hook_32bpp_net.dll hook_concourse_net.dll hook_32bpp_bridge.dll hook_concourse_bridge.dll Alliance.exe Alliance.jpg Alliance.ico AllianceTools.txt SoundClick.wav SoundLoad.wav SoundPlay.wav"
 xwau_install_binaries() {
     local game="$1" bin_dir="$2" release_tag="${3:-}" work="${4:-$HOME/.cache/xwau-linux-install}"
     if [ -n "$bin_dir" ]; then
@@ -128,9 +128,21 @@ xwau_install_binaries() {
     _xwau_put hook_patcher.dll       .ijw-orig    # NATIVE reimpl (no CLR-bootstrap deadlock)
     _xwau_put hook_32bpp_net.dll     .ijw-orig    # native CLR-hosting shim
     _xwau_put hook_concourse_net.dll .ijw-orig    # native CLR-hosting shim
+    # Native (no-.NET) XWA launcher: replaces the stock WPF Alliance.EXE, which
+    # renders black on plain wine. Backs the stock one up as *.xwau-orig; the
+    # case-insensitive find in _xwau_put resolves the on-disk Alliance.EXE.
+    _xwau_put Alliance.exe           .xwau-orig   # native launcher (win64, no .NET)
     local b
     for b in hook_32bpp_bridge.dll hook_concourse_bridge.dll; do
         [ -f "$bin_dir/$b" ] && cp "$bin_dir/$b" "$game/$b" && echo "    installed $b"
+    done
+    # Launcher support files (background, tool menu, icon, click sounds). Placed
+    # next to a case-resolved existing copy when present, else at the given name.
+    local s tgt
+    for s in Alliance.jpg Alliance.ico AllianceTools.txt SoundClick.wav SoundLoad.wav SoundPlay.wav; do
+        [ -f "$bin_dir/$s" ] || continue
+        tgt="$(find "$game" -maxdepth 1 -iname "$s" | head -1)"; tgt="${tgt:-$game/$s}"
+        cp "$bin_dir/$s" "$tgt" && echo "    installed $s"
     done
     # hook_keyboard_bg.dll is intentionally NOT installed on win64 (the Esc focus-loss
     # it fixed was the win32 sidecar window; no sidecar here — verified).
@@ -208,9 +220,13 @@ if os.path.exists(vrp):
     set_key(vrp, 'concourse_animations_at_25fps', pace)
 
 tgs = find('TGSmush.cfg')
-set_key(tgs, 'ForceBackend', 'mf')
-set_key(tgs, 'MFSoftwarePresent', '0')
-set_key(tgs, 'MFD3DPresent', '1')
+# The Media-Foundation TgSmush honours only MFSoftwarePresent (+ PreserveAspectRatio);
+# it ignores the older ForceBackend / MFD3DPresent keys. MFSoftwarePresent=1 is the
+# intended mode (confirmed by JeremyAnsel): the mp4 plays in the MAIN game window
+# instead of a separate popup, avoiding the window-switch flicker AND the Linux
+# compositor occlusion stall. The old keys are left unset (harmless if stale copies
+# linger from a prior install; the DLL disregards them).
+set_key(tgs, 'MFSoftwarePresent', '1')
 PYCFG
 }
 

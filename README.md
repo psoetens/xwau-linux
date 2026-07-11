@@ -51,12 +51,12 @@ You don't need `git` — grab the release tarball and unpack it (the installer i
 a small tree of scripts, not a single file, so download the whole thing):
 
 ```bash
-curl -fL https://github.com/psoetens/xwau-linux/archive/refs/tags/v0.4.4.tar.gz | tar xz
-cd xwau-linux-0.4.4
+curl -fL https://github.com/psoetens/xwau-linux/archive/refs/tags/v0.5.0.tar.gz | tar xz
+cd xwau-linux-0.5.0
 ```
 
 That tag's scripts are pinned to download the matching prebuilt binaries, so the
-two always stay in sync. For a different version, swap `v0.4.4` for any tag on
+two always stay in sync. For a different version, swap `v0.5.0` for any tag on
 the [Releases](https://github.com/psoetens/xwau-linux/releases) page.
 
 If you *do* have `git` (e.g. to contribute or track `main`):
@@ -108,6 +108,8 @@ Go into your `app/` directory and run the launch command:
 cd ~/Downloads/app
 ./xwa-linux-launch.sh
 ```
+
+This opens the X-Wing Alliance launcher; press **Play** to start the game.
 
 ## Steam users: installation instructions
 
@@ -165,7 +167,7 @@ preset / resolution) recorded in `<game-dir>/.xwau-install.json` at first instal
 so you don't re-pass the ~6.6 GB `--xwau-full` / `--xwau-upd` arguments:
 
 ```bash
-cd xwau-linux-0.4.4                        # the newer release you downloaded
+cd xwau-linux-0.5.0                        # the newer release you downloaded
 ./install-xwau-steam.sh --reinstall        # tears down the old version, installs this one
 ```
 
